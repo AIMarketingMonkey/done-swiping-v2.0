@@ -95,6 +95,7 @@ export type MemoryUpdate = z.infer<typeof memoryUpdateSchema>;
 
 // --- Matches (GET /matches) --------------------------------------------------
 export const matchItemSchema = z.object({
+  id: z.number(),
   user: z.string(),
   score: z.number(),
   rationale: z.string(),
@@ -103,6 +104,7 @@ export const matchItemSchema = z.object({
 export const matchesResponseSchema = z.object({
   matches: z.array(matchItemSchema),
 });
+export type MatchItem = z.infer<typeof matchItemSchema>;
 export type MatchesResponse = z.infer<typeof matchesResponseSchema>;
 
 // --- Report / Block ----------------------------------------------------------

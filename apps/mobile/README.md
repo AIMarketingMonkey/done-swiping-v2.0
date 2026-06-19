@@ -73,7 +73,7 @@ npx eas build --profile development --platform android
 | Age Gate | `app/onboarding/age-gate.tsx` | M1 (IDV provider integration) |
 | Consent | `app/onboarding/consent.tsx` | M1 (real API consent recording) |
 | Voice Onboarding | `app/onboarding/voice.tsx` | M2 (LiveKit + /session/start) — **dev build required** |
-| Matches | `app/matches/index.tsx` | M4 (GET /matches, accept/decline) |
+| Matches | `app/matches/index.tsx` | M4 (GET /matches, accept/decline) — **done** |
 | Memory | `app/memory/index.tsx` | M3 (GET/PUT/DELETE /memory, export) — **done** |
 | Paywall | `app/paywall/index.tsx` | M6 (Stripe Checkout + deep-link) |
 
@@ -118,6 +118,37 @@ The "Start age check" button calls `POST /idv/session` and opens the returned `u
 - Run `pnpm --filter @done-swiping/mobile exec expo prebuild` to generate native projects.
 - Integrate the **Yoti Mobile SDK** (iOS + Android) and replace the `Linking.openURL` call in `app/onboarding/age-gate.tsx` with the SDK's native flow (look for the `TODO(M1)` comment).
 - A Yoti account and API credentials are required — see [yoti.com/developers](https://developers.yoti.com).
+
+## M4 Matches screen
+
+The Matches screen (`app/matches/index.tsx`) shows AI-suggested matches with
+compatibility scores and acceptance rationale. It lets users act on each suggestion.
+
+### Card anatomy
+
+| Element | Details |
+|---|---|
+| **Display label** | `Match #<last-6-of-UUID>` — a stable placeholder until profile-sharing rules are defined (`TODO(M4)` in source). |
+| **Compatibility score** | Percentage (e.g. `87% compatible`) colour-coded green ≥ 85%, amber ≥ 65%, grey below. |
+| **Why you matched** | Prominent rationale line from the server — every card must show this (acceptance criterion). |
+| **Status badge** | `Connected` (green pill) or `Passed` (grey pill) once actioned; replaces buttons on acted cards. |
+
+### Accept / Decline
+
+- Buttons appear only on `suggested` matches.
+- Tapping **Connect** (accept) or **Pass** (decline) applies an **optimistic UI update**
+  immediately, then calls `supabase.from('matches').update({ status }).eq('id', id)`.
+- The `matches_update_participant` RLS policy allows a participant (`user_a` or `user_b`)
+  to update the `status` column of their own match row; no extra API endpoint is needed.
+- On Supabase error the previous state is **rolled back** and an inline error banner appears.
+
+### Other behaviours
+
+- **Loading state**: full-screen `ActivityIndicator` on first load.
+- **Pull-to-refresh**: `RefreshControl` re-fetches `GET /matches`.
+- **Empty state**: encouraging message when the server returns no matches.
+- **Error state**: inline red banner with a "Try again" button; re-runs the fetch.
+- **My profile** button (top-right) navigates to `/memory` (preserved from M3).
 
 ## Key architectural notes
 
