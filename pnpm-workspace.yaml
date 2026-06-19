@@ -1,5 +1,5 @@
 # pnpm workspaces. The Python voice-agent (services/voice-agent) is managed
 # separately with `uv` and is intentionally not a pnpm package.
 packages:
-  - "apps/*"
-  - "packages/*"
+  - 'apps/*'
+  - 'packages/*'

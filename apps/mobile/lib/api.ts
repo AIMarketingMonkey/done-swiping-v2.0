@@ -1,0 +1,124 @@
+// Typed fetch wrapper for the Done Swiping API.
+// Every call attaches the current Supabase session token as Bearer auth.
+// Request/response shapes are validated via shared Zod schemas.
+
+import {
+  API_ROUTES,
+  type BlockInput,
+  type MatchesResponse,
+  type MemoryResponse,
+  type MemoryUpdate,
+  type ReportInput,
+  type SessionStartResponse,
+  blockInputSchema,
+  matchesResponseSchema,
+  memoryResponseSchema,
+  memoryUpdateSchema,
+  reportInputSchema,
+  sessionStartResponseSchema,
+} from '@done-swiping/shared';
+
+import { supabase } from './supabase';
+
+// ---------------------------------------------------------------------------
+// Core fetch helper
+// ---------------------------------------------------------------------------
+
+async function apiFetch<T>(
+  path: string,
+  options: RequestInit & { parseWith?: (json: unknown) => T } = {},
+): Promise<T> {
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL;
+  if (!apiUrl) throw new Error('EXPO_PUBLIC_API_URL is not set');
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string>),
+  };
+
+  if (session?.access_token) {
+    headers['Authorization'] = `Bearer ${session.access_token}`;
+  }
+
+  const response = await fetch(`${apiUrl}${path}`, {
+    ...options,
+    headers,
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`API ${options.method ?? 'GET'} ${path} → ${response.status}: ${body}`);
+  }
+
+  const json: unknown = await response.json();
+
+  if (options.parseWith) {
+    return options.parseWith(json);
+  }
+
+  return json as T;
+}
+
+// ---------------------------------------------------------------------------
+// Endpoint helpers
+// ---------------------------------------------------------------------------
+
+/** POST /session/start — returns LiveKit connection details. */
+export async function startSession(): Promise<SessionStartResponse> {
+  return apiFetch(API_ROUTES.sessionStart, {
+    method: 'POST',
+    parseWith: (json) => sessionStartResponseSchema.parse(json),
+  });
+}
+
+/** GET /memory — returns the user's stated attributes, inferred traits, and preferences. */
+export async function getMemory(): Promise<MemoryResponse> {
+  return apiFetch(API_ROUTES.memory, {
+    method: 'GET',
+    parseWith: (json) => memoryResponseSchema.parse(json),
+  });
+}
+
+/** PUT /memory/:id — edit a single memory item. */
+export async function updateMemoryItem(id: number, update: MemoryUpdate): Promise<void> {
+  const body = memoryUpdateSchema.parse(update);
+  await apiFetch(API_ROUTES.memoryItem(id), {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
+/** DELETE /memory/:id — remove a single memory item. */
+export async function deleteMemoryItem(id: number): Promise<void> {
+  await apiFetch(API_ROUTES.memoryItem(id), { method: 'DELETE' });
+}
+
+/** GET /matches — returns current match suggestions with rationale. */
+export async function getMatches(): Promise<MatchesResponse> {
+  return apiFetch(API_ROUTES.matches, {
+    method: 'GET',
+    parseWith: (json) => matchesResponseSchema.parse(json),
+  });
+}
+
+/** POST /report — submit a safety report against another user. */
+export async function report(input: ReportInput): Promise<void> {
+  const body = reportInputSchema.parse(input);
+  await apiFetch(API_ROUTES.report, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+/** POST /block — block another user. */
+export async function block(input: BlockInput): Promise<void> {
+  const body = blockInputSchema.parse(input);
+  await apiFetch(API_ROUTES.block, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}

@@ -1,0 +1,49 @@
+[project]
+name = "done-swiping-voice-agent"
+version = "0.1.0"
+description = "Done Swiping voice agent — LiveKit Agents service (Deepgram STT → Claude brain → Cartesia TTS)"
+requires-python = ">=3.11"
+dependencies = [
+    "livekit-agents>=0.12",
+    "livekit-plugins-deepgram>=0.8",
+    "livekit-plugins-anthropic>=0.8",
+    "livekit-plugins-cartesia>=0.8",
+    "livekit-plugins-elevenlabs>=0.8",
+    "livekit-plugins-silero>=0.7",
+    "anthropic>=0.40",
+    "supabase>=2.9",
+    "python-dotenv>=1.0",
+    "openai>=1.0",  # embeddings (default provider); swap/remove if using Voyage/Gemini
+]
+
+[project.scripts]
+voice-agent = "agent:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "TID", # flake8-tidy-imports
+    "RUF", # ruff-specific
+]
+ignore = [
+    "E501",  # line too long — handled by formatter
+    "B008",  # do not perform function calls in default arguments
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["lib", "extraction"]
+
+[tool.uv]
+# Dev command: uv run python agent.py dev
+# Sync deps:   uv sync

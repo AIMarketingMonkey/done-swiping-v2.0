@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Done Swiping",
+    "slug": "done-swiping",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "scheme": "doneswiping",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.doneswiping.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Done Swiping uses your microphone for voice onboarding sessions with the AI companion."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.doneswiping.app",
+      "permissions": ["android.permission.RECORD_AUDIO"]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  },
+  "_comments": {
+    "livekit": "@livekit/react-native requires native modules (WebRTC). It will NOT work in Expo Go. You must run `expo prebuild` and build a dev client or production build. See README.md for details."
+  }
+}

@@ -37,7 +37,13 @@ export const SAFETY_FLAG_TYPE = [
   'other',
 ] as const;
 export const SUBSCRIPTION_TIER = ['free', 'premium'] as const;
-export const SUBSCRIPTION_STATUS = ['active', 'trialing', 'past_due', 'canceled', 'incomplete'] as const;
+export const SUBSCRIPTION_STATUS = [
+  'active',
+  'trialing',
+  'past_due',
+  'canceled',
+  'incomplete',
+] as const;
 
 /** Consent scopes. `special_category` covers orientation etc. (GDPR Art. 9). */
 export const CONSENT_SCOPE = [
@@ -55,7 +61,7 @@ export const AI_DISCLOSURE = {
   /** Spoken at the start of every voice session. */
   spoken:
     "Before we start — I'm an AI companion, not a human. I'm here to get to know " +
-    "you so we can find you better matches. You can stop any time.",
+    'you so we can find you better matches. You can stop any time.',
   /** On-screen banner copy, always visible during a session. */
   banner: 'You are talking to an AI companion, not a human.',
   /** Periodic reminder for long/emotional sessions. */
