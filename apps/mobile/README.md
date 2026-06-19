@@ -27,29 +27,42 @@ Copy `.env.example` to `.env.local` and fill in your values:
 
 **Never add** the Supabase service-role key here — it bypasses Row Level Security and must only exist server-side.
 
-## Native build requirement for LiveKit (WebRTC)
+## Native build requirement for LiveKit / voice screen (M2)
 
-`@livekit/react-native` depends on `@livekit/react-native-webrtc`, which contains native iOS and Android modules. **This will NOT run in Expo Go.**
+`@livekit/react-native` depends on `@livekit/react-native-webrtc`, which contains native iOS and Android code (C++ WebRTC). **This will NOT run in Expo Go or the web platform.**
 
-To test voice features you need a **development build**:
+The voice screen (`app/onboarding/voice.tsx`) requires a **development client build** (or production build):
 
 ```bash
-# 1. Generate native projects
+# 1. Generate native projects (run once, or after any native dep change)
 pnpm --filter @done-swiping/mobile exec expo prebuild
 
-# 2a. iOS (requires Xcode + Apple Developer account)
+# 2a. iOS — requires Xcode 15+ and an Apple Developer account
 pnpm ios
 
-# 2b. Android (requires Android Studio / connected device)
+# 2b. Android — requires Android Studio and a connected device / emulator
 pnpm android
 ```
 
-Alternatively use EAS Build:
+Alternatively, build via EAS Build (no local Xcode/Android Studio needed):
+
 ```bash
 npx eas build --profile development --platform ios
+npx eas build --profile development --platform android
 ```
 
-The web platform (`pnpm web`) works for all non-audio screens and the demo, but voice sessions are native-only.
+### Microphone permissions
+
+- **iOS:** The `NSMicrophoneUsageDescription` is already set in `app.json`. The native permission prompt appears automatically on first microphone publish.
+- **Android:** `RECORD_AUDIO` is declared in `app.json`. The voice screen requests the permission at runtime via `PermissionsAndroid` before the session starts.
+
+### What does NOT work without a native build
+
+| Feature | Expo Go | Web | Dev build |
+|---|---|---|---|
+| Auth, age-gate, consent | Works | Works | Works |
+| Matches, memory screens | Works | Works | Works |
+| Voice session (LiveKit) | **No** | **No** | **Yes** |
 
 ## Screen → milestone map
 
@@ -59,7 +72,7 @@ The web platform (`pnpm web`) works for all non-audio screens and the demo, but 
 | Sign Up | `app/(auth)/sign-up.tsx` | M0 (email done); M1 (Apple/Google) |
 | Age Gate | `app/onboarding/age-gate.tsx` | M1 (IDV provider integration) |
 | Consent | `app/onboarding/consent.tsx` | M1 (real API consent recording) |
-| Voice Onboarding | `app/onboarding/voice.tsx` | M2 (LiveKit + /session/start) |
+| Voice Onboarding | `app/onboarding/voice.tsx` | M2 (LiveKit + /session/start) — **dev build required** |
 | Matches | `app/matches/index.tsx` | M4 (GET /matches, accept/decline) |
 | Memory | `app/memory/index.tsx` | M3 (GET/PUT/DELETE /memory) |
 | Paywall | `app/paywall/index.tsx` | M6 (Stripe Checkout + deep-link) |

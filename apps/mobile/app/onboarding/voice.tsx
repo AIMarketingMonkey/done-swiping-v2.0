@@ -4,114 +4,346 @@
 // throughout the session (EU AI Act Art. 50). Do not move it below the fold or
 // allow the user to dismiss it.
 //
-// TODO(M2): Implement real voice session:
-//   1. Call startSession() from lib/api.ts → get {livekit_url, token, room}
-//   2. Call joinRoom(params) from lib/livekit.ts
-//   3. Subscribe to AI audio track and play it
-//   4. Publish the user's microphone when the mic button is pressed
-//   5. Dispatch the AI_DISCLOSURE.spoken string via TTS at session start
-//   6. Set up DISCLOSURE_REMINDER_INTERVAL_MS timer for periodic reminders
-//   7. On session end, navigate to /matches
+// Architecture:
+//   - startSession() (lib/api.ts) → POST /session/start → {livekit_url, token, room}
+//   - <LiveKitRoom> handles room connection, audio publishing, and re-connection
+//   - useConnectionState() drives the UI state indicator
+//   - useLocalParticipant() gives isMicrophoneEnabled + localParticipant for mute toggle
+//   - useVoiceAssistant() gives agent speaking state for the talking indicator
+//
+// TODO(M3): Wire live transcript — agentTranscriptions from useVoiceAssistant()
+//           contains per-turn TranscriptionSegment[] from the agent's STT output.
 
 import { AiDisclosureBanner } from '@/components/AiDisclosureBanner';
-import { Screen } from '@/components/Screen';
+import { AgeGateError } from '@/lib/api';
+import * as api from '@/lib/api';
+import { startAudioSession, stopAudioSession } from '@/lib/livekit';
 import { AI_DISCLOSURE } from '@done-swiping/shared';
+import {
+  LiveKitRoom,
+  useConnectionState,
+  useLocalParticipant,
+  useVoiceAssistant,
+} from '@livekit/react-native';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  PermissionsAndroid,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
-type SessionState = 'idle' | 'connecting' | 'active' | 'ended';
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-export default function VoiceOnboarding(): React.JSX.Element {
-  const router = useRouter();
-  const [sessionState, setSessionState] = useState<SessionState>('idle');
-  const [micActive, setMicActive] = useState(false);
+type ScreenState =
+  | { phase: 'requesting_permission' }
+  | { phase: 'idle' }
+  | { phase: 'connecting'; livekitUrl: string; token: string }
+  | { phase: 'live'; livekitUrl: string; token: string }
+  | { phase: 'error'; message: string; retryable: boolean }
+  | { phase: 'ended' };
 
-  async function handleStartSession(): Promise<void> {
-    setSessionState('connecting');
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function requestMicPermission(): Promise<boolean> {
+  if (Platform.OS === 'android') {
+    // RECORD_AUDIO is always present on Android — the non-null assertion is safe
+    // because this branch only runs when Platform.OS === 'android'.
+    const permission = PermissionsAndroid.PERMISSIONS.RECORD_AUDIO!;
+    const result = await PermissionsAndroid.request(permission, {
+      title: 'Microphone access',
+      message:
+        'Done Swiping uses your microphone to talk with your AI companion during onboarding.',
+      buttonPositive: 'Allow',
+      buttonNegative: 'Deny',
+    });
+    return result === PermissionsAndroid.RESULTS.GRANTED;
+  }
+  // iOS: permission is requested implicitly by WebRTC when the track is first
+  // published (NSMicrophoneUsageDescription in app.json). Return true to
+  // unblock the flow — the native prompt appears on first publish.
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Inner call-screen component (must be rendered inside <LiveKitRoom>)
+// ---------------------------------------------------------------------------
+
+interface CallControlsProps {
+  onEnd: () => void;
+}
+
+function CallControls({ onEnd }: CallControlsProps): React.JSX.Element {
+  const connectionState = useConnectionState();
+  const { isMicrophoneEnabled, localParticipant } = useLocalParticipant();
+  const { state: agentState } = useVoiceAssistant();
+
+  // Compare against string literal values — ConnectionState enum from livekit-client
+  // is not re-exported by @livekit/react-native, so we use its underlying string values:
+  //   'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'signalReconnecting'
+  const isConnecting =
+    connectionState === 'connecting' || connectionState === 'reconnecting';
+  const isLive = connectionState === 'connected';
+  const isReconnecting = connectionState === 'reconnecting';
+
+  async function handleToggleMic(): Promise<void> {
     try {
-      // TODO(M2): Replace with real session start + LiveKit connection.
-      //   const params = await startSession();
-      //   await joinRoom(params);
-      //   setSessionState('active');
-      await new Promise<void>((resolve) => setTimeout(resolve, 800)); // placeholder
-      setSessionState('active');
-    } catch {
-      setSessionState('idle');
-      Alert.alert('Connection error', 'Could not connect to your session. Please try again.');
+      await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
+    } catch (_err) {
+      Alert.alert('Microphone error', 'Could not toggle the microphone. Please try again.');
     }
   }
 
-  function handleToggleMic(): void {
-    if (sessionState !== 'active') return;
-    // TODO(M2): Toggle microphone track publish on the LiveKit room.
-    setMicActive((prev) => !prev);
+  // Connection state label
+  let statusLabel = 'Connecting…';
+  if (isReconnecting) statusLabel = 'Reconnecting…';
+  else if (isLive) {
+    if (agentState === 'speaking') statusLabel = 'AI companion is speaking';
+    else if (agentState === 'thinking') statusLabel = 'Thinking…';
+    else if (agentState === 'listening' || agentState === 'idle') statusLabel = 'Listening…';
+    else statusLabel = 'Session active';
   }
 
-  function handleEndSession(): void {
-    // TODO(M2): Disconnect from the LiveKit room, then navigate.
-    setSessionState('ended');
-    router.replace('/matches');
-  }
+  // Visual pulse: agent speaking → purple border, user speaking (mic on + live) → green
+  const agentSpeaking = isLive && agentState === 'speaking';
+  const userCanSpeak = isLive && isMicrophoneEnabled;
 
   return (
-    <View style={styles.root}>
-      {/* Compliance banner — always at top, never hidden */}
-      <AiDisclosureBanner />
+    <View style={styles.callControls}>
+      {/* Connection / agent state indicator */}
+      <View style={styles.statusRow}>
+        {isConnecting && <ActivityIndicator size="small" color="#7C3AED" style={styles.spinner} />}
+        <View
+          style={[
+            styles.statusDot,
+            isLive && !isReconnecting && styles.statusDotLive,
+            isReconnecting && styles.statusDotReconnecting,
+          ]}
+        />
+        <Text style={styles.statusText}>{statusLabel}</Text>
+      </View>
 
-      <Screen style={styles.content}>
-        <Text style={styles.heading}>Meet your AI companion</Text>
-        <Text style={styles.subtext}>
-          Your AI companion will ask you a few questions to understand what you're looking for. The
-          more you share, the better your matches will be.
+      {/* Talking/listening ring */}
+      <View
+        style={[
+          styles.ring,
+          agentSpeaking && styles.ringAgentSpeaking,
+          !agentSpeaking && userCanSpeak && styles.ringUserSpeaking,
+        ]}
+      >
+        <Text style={styles.ringIcon}>{isMicrophoneEnabled ? '🎙️' : '🔇'}</Text>
+      </View>
+
+      {/* TODO(M3): Render live transcript here — agentTranscriptions from
+           useVoiceAssistant() contains per-segment text from the agent. */}
+
+      {/* Mute / unmute */}
+      <Pressable
+        style={[styles.micButton, isMicrophoneEnabled && styles.micButtonActive]}
+        onPress={() => void handleToggleMic()}
+        accessibilityRole="button"
+        accessibilityLabel={isMicrophoneEnabled ? 'Mute microphone' : 'Unmute microphone'}
+        disabled={!isLive}
+      >
+        <Text style={styles.micLabel}>
+          {isMicrophoneEnabled ? 'Mute' : 'Unmute'}
         </Text>
+      </Pressable>
 
-        {/* Spoken disclosure — shown as text before session starts */}
-        {sessionState === 'idle' && (
-          <View style={styles.disclosureBox}>
-            <Text style={styles.disclosureText}>"{AI_DISCLOSURE.spoken}"</Text>
-          </View>
-        )}
-
-        {/* Session state UI */}
-        {sessionState === 'idle' && (
-          <Pressable style={styles.primaryButton} onPress={handleStartSession}>
-            <Text style={styles.primaryButtonText}>Start conversation</Text>
-          </Pressable>
-        )}
-
-        {sessionState === 'connecting' && (
-          <View style={styles.statusBox}>
-            <Text style={styles.statusText}>Connecting…</Text>
-          </View>
-        )}
-
-        {sessionState === 'active' && (
-          <View style={styles.activeControls}>
-            <Text style={styles.statusText}>Session active</Text>
-
-            {/* Mic toggle button */}
-            <Pressable
-              style={[styles.micButton, micActive && styles.micButtonActive]}
-              onPress={handleToggleMic}
-              accessibilityRole="button"
-              accessibilityLabel={micActive ? 'Mute microphone' : 'Unmute microphone'}
-            >
-              <Text style={styles.micIcon}>{micActive ? '🎙️' : '🔇'}</Text>
-              <Text style={styles.micLabel}>{micActive ? 'Speaking' : 'Tap to speak'}</Text>
-            </Pressable>
-
-            <Pressable style={styles.endButton} onPress={handleEndSession}>
-              <Text style={styles.endButtonText}>End conversation</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {/* TODO(M2): Render live transcript / waveform visualiser here */}
-      </Screen>
+      {/* End call */}
+      <Pressable
+        style={styles.endButton}
+        onPress={onEnd}
+        accessibilityRole="button"
+        accessibilityLabel="End conversation"
+      >
+        <Text style={styles.endButtonText}>End conversation</Text>
+      </Pressable>
     </View>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Main screen component
+// ---------------------------------------------------------------------------
+
+export default function VoiceOnboarding(): React.JSX.Element {
+  const router = useRouter();
+  const [screenState, setScreenState] = useState<ScreenState>({ phase: 'requesting_permission' });
+  // Track whether audio session is active so we can tear it down on unmount.
+  const audioSessionActive = useRef(false);
+
+  // ---------------------------------------------------------------------------
+  // Permission + session start
+  // ---------------------------------------------------------------------------
+
+  const startSession = useCallback(async () => {
+    setScreenState({ phase: 'requesting_permission' });
+
+    const granted = await requestMicPermission();
+    if (!granted) {
+      setScreenState({
+        phase: 'error',
+        message:
+          'Microphone access is required for voice sessions. Please enable it in Settings and try again.',
+        retryable: false,
+      });
+      return;
+    }
+
+    setScreenState({ phase: 'idle' });
+
+    try {
+      // Start the native audio session before connecting so routing is
+      // correct from the first track. Safe to call multiple times.
+      await startAudioSession();
+      audioSessionActive.current = true;
+
+      const params = await api.startSession();
+
+      setScreenState({
+        phase: 'connecting',
+        livekitUrl: params.livekit_url,
+        token: params.token,
+      });
+    } catch (err) {
+      if (err instanceof AgeGateError) {
+        // Age assurance gate is still blocking — send the user back.
+        router.replace('/onboarding/age-gate');
+        return;
+      }
+      setScreenState({
+        phase: 'error',
+        message: 'Could not connect to your session. Please check your connection and try again.',
+        retryable: true,
+      });
+    }
+  }, [router]);
+
+  // Kick off on first mount.
+  useEffect(() => {
+    void startSession();
+    return () => {
+      // Tear down audio on unmount if still active.
+      if (audioSessionActive.current) {
+        void stopAudioSession();
+        audioSessionActive.current = false;
+      }
+    };
+  }, [startSession]);
+
+  // ---------------------------------------------------------------------------
+  // End call handler
+  // ---------------------------------------------------------------------------
+
+  function handleEnd(): void {
+    setScreenState({ phase: 'ended' });
+    if (audioSessionActive.current) {
+      void stopAudioSession();
+      audioSessionActive.current = false;
+    }
+    // Navigate to matches after conversation ends.
+    router.replace('/matches');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
+  const isConnectingOrLive =
+    screenState.phase === 'connecting' || screenState.phase === 'live';
+
+  return (
+    <View style={styles.root}>
+      {/* Compliance banner — always at top, never hidden (EU AI Act Art. 50) */}
+      <AiDisclosureBanner />
+
+      <View style={styles.content}>
+        {/* Pre-session: spoken disclosure text */}
+        {(screenState.phase === 'idle' || screenState.phase === 'requesting_permission') && (
+          <>
+            <Text style={styles.heading}>Meet your AI companion</Text>
+            <Text style={styles.subtext}>
+              Your AI companion will ask you a few questions to understand what you're looking for.
+              The more you share, the better your matches will be.
+            </Text>
+            <View style={styles.disclosureBox}>
+              <Text style={styles.disclosureText}>"{AI_DISCLOSURE.spoken}"</Text>
+            </View>
+            {screenState.phase === 'requesting_permission' && (
+              <ActivityIndicator size="large" color="#7C3AED" style={styles.loader} />
+            )}
+          </>
+        )}
+
+        {/* Error state */}
+        {screenState.phase === 'error' && (
+          <>
+            <Text style={styles.heading}>Connection problem</Text>
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>{screenState.message}</Text>
+            </View>
+            {screenState.retryable && (
+              <Pressable style={styles.primaryButton} onPress={() => void startSession()}>
+                <Text style={styles.primaryButtonText}>Try again</Text>
+              </Pressable>
+            )}
+          </>
+        )}
+
+        {/* LiveKit room — rendered once we have a URL + token */}
+        {isConnectingOrLive && (
+          <LiveKitRoom
+            serverUrl={
+              screenState.phase === 'connecting' || screenState.phase === 'live'
+                ? screenState.livekitUrl
+                : undefined
+            }
+            token={
+              screenState.phase === 'connecting' || screenState.phase === 'live'
+                ? screenState.token
+                : undefined
+            }
+            connect
+            audio
+            onConnected={() => {
+              if (screenState.phase === 'connecting') {
+                setScreenState((prev) =>
+                  prev.phase === 'connecting'
+                    ? { phase: 'live', livekitUrl: prev.livekitUrl, token: prev.token }
+                    : prev,
+                );
+              }
+            }}
+            onDisconnected={handleEnd}
+            onError={(_err) => {
+              setScreenState({
+                phase: 'error',
+                message: 'The voice connection was interrupted. Please try again.',
+                retryable: true,
+              });
+            }}
+          >
+            <CallControls onEnd={handleEnd} />
+          </LiveKitRoom>
+        )}
+      </View>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
   root: {
@@ -119,13 +351,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   content: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingVertical: 32,
     gap: 20,
-    paddingVertical: 24,
     justifyContent: 'center',
   },
   heading: {
     fontSize: 26,
     fontWeight: '700',
+    color: '#111827',
   },
   subtext: {
     fontSize: 15,
@@ -145,6 +380,22 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     lineHeight: 22,
   },
+  loader: {
+    marginTop: 24,
+    alignSelf: 'center',
+  },
+  errorBox: {
+    backgroundColor: '#FEF2F2',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    padding: 14,
+  },
+  errorText: {
+    fontSize: 14,
+    color: '#DC2626',
+    lineHeight: 21,
+  },
   primaryButton: {
     backgroundColor: '#7C3AED',
     borderRadius: 8,
@@ -156,20 +407,39 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  statusBox: {
+  // --- Call controls (inside LiveKitRoom) ---
+  callControls: {
+    flex: 1,
     alignItems: 'center',
-    paddingVertical: 24,
+    justifyContent: 'center',
+    gap: 24,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  spinner: {
+    marginRight: 4,
+  },
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#9CA3AF',
+  },
+  statusDotLive: {
+    backgroundColor: '#16A34A',
+  },
+  statusDotReconnecting: {
+    backgroundColor: '#D97706',
   },
   statusText: {
-    fontSize: 16,
-    color: '#6B7280',
-    textAlign: 'center',
+    fontSize: 15,
+    color: '#374151',
   },
-  activeControls: {
-    gap: 20,
-    alignItems: 'center',
-  },
-  micButton: {
+  // Talking/listening indicator ring
+  ring: {
     width: 120,
     height: 120,
     borderRadius: 60,
@@ -179,17 +449,33 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: '#E5E7EB',
   },
+  ringAgentSpeaking: {
+    borderColor: '#7C3AED',
+    backgroundColor: '#EDE9FE',
+  },
+  ringUserSpeaking: {
+    borderColor: '#16A34A',
+    backgroundColor: '#DCFCE7',
+  },
+  ringIcon: {
+    fontSize: 48,
+  },
+  micButton: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+  },
   micButtonActive: {
     backgroundColor: '#EDE9FE',
     borderColor: '#7C3AED',
   },
-  micIcon: {
-    fontSize: 40,
-  },
   micLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginTop: 4,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
   },
   endButton: {
     borderWidth: 1,

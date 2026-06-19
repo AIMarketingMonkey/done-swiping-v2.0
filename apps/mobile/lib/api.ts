@@ -25,6 +25,22 @@ import {
 import { supabase } from './supabase';
 
 // ---------------------------------------------------------------------------
+// Typed errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown by startSession() when the API responds with 403.
+ * A 403 means the user's age assurance has not yet passed — the UI should
+ * redirect back to /onboarding/age-gate rather than showing a generic error.
+ */
+export class AgeGateError extends Error {
+  constructor() {
+    super('Age assurance not passed — cannot start voice session.');
+    this.name = 'AgeGateError';
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Core fetch helper
 // ---------------------------------------------------------------------------
 
@@ -71,12 +87,40 @@ async function apiFetch<T>(
 // Endpoint helpers
 // ---------------------------------------------------------------------------
 
-/** POST /session/start — returns LiveKit connection details. */
+/** POST /session/start — returns LiveKit connection details.
+ *
+ * Throws `AgeGateError` if the server returns 403 (age assurance not passed).
+ * The voice screen catches this and redirects back to /onboarding/age-gate.
+ */
 export async function startSession(): Promise<SessionStartResponse> {
-  return apiFetch(API_ROUTES.sessionStart, {
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL;
+  if (!apiUrl) throw new Error('EXPO_PUBLIC_API_URL is not set');
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (session?.access_token) {
+    headers['Authorization'] = `Bearer ${session.access_token}`;
+  }
+
+  const response = await fetch(`${apiUrl}${API_ROUTES.sessionStart}`, {
     method: 'POST',
-    parseWith: (json) => sessionStartResponseSchema.parse(json),
+    headers,
   });
+
+  if (response.status === 403) {
+    throw new AgeGateError();
+  }
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`API POST ${API_ROUTES.sessionStart} → ${response.status}: ${body}`);
+  }
+
+  const json: unknown = await response.json();
+  return sessionStartResponseSchema.parse(json);
 }
 
 /** GET /memory — returns the user's stated attributes, inferred traits, and preferences. */

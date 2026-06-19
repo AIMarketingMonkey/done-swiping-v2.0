@@ -1,12 +1,4 @@
-// LiveKit integration stub.
-//
-// TODO(M2): Wire up real room connection:
-//   - Call startSession() from lib/api.ts to get {livekit_url, token, room}
-//   - Connect to the room via Room.connect(livekit_url, token)
-//   - Subscribe to audio tracks (the AI voice agent speaks on the agent track)
-//   - Publish the user's microphone track
-//   - Handle disconnect / error states
-//   - Expose room state for the voice screen UI
+// LiveKit integration helpers.
 //
 // NATIVE BUILD REQUIRED:
 //   @livekit/react-native depends on @livekit/react-native-webrtc which
@@ -14,36 +6,39 @@
 //   You must run `expo prebuild` and build a development client or production
 //   binary. See README.md for the full prebuild instructions.
 
-import { registerGlobals } from '@livekit/react-native';
-
-export interface LiveKitConnectionParams {
-  livekit_url: string;
-  token: string;
-  room: string;
-}
+import { AudioSession, registerGlobals } from '@livekit/react-native';
 
 /**
  * Call once at app startup (e.g. in the root layout) to register the WebRTC
  * globals required by @livekit/react-native.
  *
- * Must be called before any Room is created.
+ * Must be called before any Room is created. Internally calls
+ * `registerGlobals()` from @livekit/react-native-webrtc and sets up the URL
+ * polyfill and iOS audio session management.
  */
 export function setupLiveKit(): void {
   registerGlobals();
 }
 
 /**
- * Join a LiveKit room with the given connection params.
+ * Start a native audio session configured for voice communication.
  *
- * TODO(M2): Replace this stub with real Room.connect() logic.
- * The params come from POST /session/start (see lib/api.ts → startSession()).
+ * Call this before connecting to a LiveKit room so audio routing is correct
+ * from the moment the first track is published/subscribed.
+ *
+ * On iOS this activates the AVAudioSession.
+ * On Android this sets communication audio mode.
  */
-export async function joinRoom(_params: LiveKitConnectionParams): Promise<void> {
-  // TODO(M2): Implement real room connection.
-  // Example:
-  //   const room = new Room();
-  //   await room.connect(params.livekit_url, params.token);
-  //   await room.localParticipant.setMicrophoneEnabled(true);
-  //   return room;
-  throw new Error('joinRoom is not yet implemented. See TODO(M2).');
+export async function startAudioSession(): Promise<void> {
+  await AudioSession.startAudioSession();
+}
+
+/**
+ * Stop the native audio session.
+ *
+ * Call this after the room has disconnected to release audio focus and
+ * restore the previous audio routing (earpiece / media playback).
+ */
+export async function stopAudioSession(): Promise<void> {
+  await AudioSession.stopAudioSession();
 }

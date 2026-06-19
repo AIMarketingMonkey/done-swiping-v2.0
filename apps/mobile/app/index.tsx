@@ -6,7 +6,8 @@
 //   1. Not signed in           → (auth)/sign-in
 //   2. Age assurance not pass  → onboarding/age-gate      (UK Online Safety Act)
 //   3. Consent not recorded    → onboarding/consent       (GDPR Art. 7 + Art. 9)
-//   4. All gates passed        → /matches
+//   4. All gates passed        → onboarding/voice         (M2 voice onboarding)
+//      └─ voice screen navigates to /matches on completion
 
 import { useAuth } from '@/app/_layout';
 import { useGateState } from '@/lib/useGateState';
@@ -41,8 +42,9 @@ export default function Index(): React.JSX.Element {
     return <Redirect href="/onboarding/consent" />;
   }
 
-  // All gates passed → main app.
-  return <Redirect href="/matches" />;
+  // All gates passed → voice onboarding (M2).
+  // The voice screen navigates to /matches after the conversation ends.
+  return <Redirect href="/onboarding/voice" />;
 }
 
 const styles = StyleSheet.create({
