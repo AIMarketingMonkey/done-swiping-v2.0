@@ -76,10 +76,31 @@ class Settings:
         default_factory=lambda: _optional("WORKER_MODEL", "claude-haiku-4-5-20251001")
     )
 
-    # TTS
+    # TTS — provider selection
+    # tts_provider: "cartesia" | "elevenlabs" | "ab"
+    #   "ab" enables a stable 50/50 A/B split per session (room-name hash).
+    tts_provider: str = field(
+        default_factory=lambda: _optional("TTS_PROVIDER", "cartesia")
+    )
+
+    # Cartesia TTS
     cartesia_api_key: str = field(default_factory=lambda: _require("CARTESIA_API_KEY"))
+    # Voice and model IDs for Cartesia.  Defaults are sensible for UK-English dating context.
+    cartesia_voice_id: str = field(
+        default_factory=lambda: _optional(
+            "CARTESIA_VOICE_ID", "f786b574-daa5-4673-aa0c-cbe3e8534c02"
+        )
+    )
+    cartesia_model_id: str = field(
+        default_factory=lambda: _optional("CARTESIA_MODEL_ID", "sonic-3")
+    )
+
+    # ElevenLabs TTS (used when tts_provider="elevenlabs" or the B arm of A/B)
     elevenlabs_api_key: str = field(
         default_factory=lambda: _optional("ELEVENLABS_API_KEY", "")
+    )
+    elevenlabs_voice_id: str = field(
+        default_factory=lambda: _optional("ELEVENLABS_VOICE_ID", "hpp4J3VqNfWAUOO0d1Us")
     )
 
     # Supabase

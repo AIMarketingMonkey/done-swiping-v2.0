@@ -1,15 +1,19 @@
 [project]
 name = "done-swiping-voice-agent"
 version = "0.1.0"
-description = "Done Swiping voice agent — LiveKit Agents service (Deepgram STT → Claude brain → Cartesia TTS)"
+description = "Done Swiping voice agent — LiveKit Agents service (Deepgram Flux STT → Claude brain → Cartesia/ElevenLabs TTS)"
 requires-python = ">=3.11"
 dependencies = [
-    "livekit-agents>=0.12",
-    "livekit-plugins-deepgram>=0.8",
-    "livekit-plugins-anthropic>=0.8",
-    "livekit-plugins-cartesia>=0.8",
-    "livekit-plugins-elevenlabs>=0.8",
-    "livekit-plugins-silero>=0.7",
+    # Pinned to major 1.x — the 0.x → 1.x API break was significant (VoiceAssistant → Agent/AgentSession).
+    # Bump only after reviewing the changelog.
+    "livekit-agents>=1.6.1,<2",
+    "livekit-plugins-deepgram>=1.6.1,<2",
+    "livekit-plugins-anthropic>=1.6.1,<2",
+    "livekit-plugins-cartesia>=1.6.1,<2",
+    "livekit-plugins-elevenlabs>=1.6.1,<2",
+    # livekit-plugins-silero is deprecated in 1.x; AgentSession now bundles Silero VAD.
+    # Kept here only for reference; not imported in agent.py.
+    # "livekit-plugins-silero>=1.6.1,<2",
     "anthropic>=0.40",
     "supabase>=2.9",
     "python-dotenv>=1.0",

@@ -90,8 +90,7 @@ function CallControls({ onEnd }: CallControlsProps): React.JSX.Element {
   // Compare against string literal values — ConnectionState enum from livekit-client
   // is not re-exported by @livekit/react-native, so we use its underlying string values:
   //   'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'signalReconnecting'
-  const isConnecting =
-    connectionState === 'connecting' || connectionState === 'reconnecting';
+  const isConnecting = connectionState === 'connecting' || connectionState === 'reconnecting';
   const isLive = connectionState === 'connected';
   const isReconnecting = connectionState === 'reconnecting';
 
@@ -154,9 +153,7 @@ function CallControls({ onEnd }: CallControlsProps): React.JSX.Element {
         accessibilityLabel={isMicrophoneEnabled ? 'Mute microphone' : 'Unmute microphone'}
         disabled={!isLive}
       >
-        <Text style={styles.micLabel}>
-          {isMicrophoneEnabled ? 'Mute' : 'Unmute'}
-        </Text>
+        <Text style={styles.micLabel}>{isMicrophoneEnabled ? 'Mute' : 'Unmute'}</Text>
       </Pressable>
 
       {/* End call */}
@@ -259,8 +256,7 @@ export default function VoiceOnboarding(): React.JSX.Element {
   // Render
   // ---------------------------------------------------------------------------
 
-  const isConnectingOrLive =
-    screenState.phase === 'connecting' || screenState.phase === 'live';
+  const isConnectingOrLive = screenState.phase === 'connecting' || screenState.phase === 'live';
 
   return (
     <View style={styles.root}>

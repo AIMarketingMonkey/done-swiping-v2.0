@@ -2,46 +2,70 @@
 
 LiveKit Agents service powering the Done Swiping voice conversation loop.
 
+**Library version:** livekit-agents **1.6.1** (all plugins 1.6.1).
+The 1.x API replaced the old `VoiceAssistant` class with `Agent` + `AgentSession`.
+
 ## Pipeline
 
 ```
 User mic
   │
   ▼
-Deepgram Flux STT (nova-3, en-GB)
-  │  (transcribed text)
+Deepgram Flux STT  (STTv2, model "flux-general-en", en-GB)
+  │  (transcribed text — treated as DATA, never as instructions)
   ├──────────────────────────────────► Claude Haiku safety classifier
   │                                        │ (parallel, non-blocking)
   │                                        ▼
   │                                   safety_flags table (if flagged)
   │
   ▼
-Claude Sonnet 4.6 (brain / companion LLM)
+Claude Sonnet 4.6  (brain / companion LLM)
   │  (system: prompts/companion.md)
   │
   ▼
-Cartesia TTS
+Cartesia TTS  OR  ElevenLabs TTS  (see A/B TTS below)
   │
   ▼
-User speaker  (barge-in / interruption enabled via Silero VAD)
+User speaker  (barge-in / interruption enabled via bundled Silero VAD)
 
-On disconnect:
+On session close:
   conversations.ended_at set → extraction/worker.py triggered
   worker calls Claude Haiku (→ Sonnet escalation) with prompts/extraction.md
   → profile_attributes + inferred_traits + embeddings written to Supabase
 ```
 
+## A/B TTS switch
+
+Set `TTS_PROVIDER` in your `.env`:
+
+| Value | Behaviour |
+|---|---|
+| `cartesia` | Always Cartesia (default) |
+| `elevenlabs` | Always ElevenLabs |
+| `ab` | Stable 50/50 split per session by SHA-256 of room name. Which provider was used is logged at INFO level for analysis. |
+
+When `TTS_PROVIDER=ab` the session log will contain a line like:
+`TTS provider selected: cartesia (TTS_PROVIDER=ab) room=<name> conversation=<id>`
+
 ## Dev commands
 
 ```bash
 # From services/voice-agent/
-uv sync                          # install dependencies
+uv sync                          # install / sync dependencies
 uv run python agent.py dev       # local dev (LiveKit dev server, hot-reload)
 uv run python agent.py start     # production worker
 
 # Run extraction manually for a conversation:
 uv run python -m extraction.worker <conversation_id>
+
+# Static checks (no live keys needed):
+uv run ruff check .
+uv run python -c "import agent; import extraction.worker"
 ```
+
+**NOTE:** `agent.py dev` and `agent.py start` require a reachable LiveKit server
+plus valid STT/LLM/TTS credentials.  They will fail in environments with egress
+restrictions (e.g. sandboxed CI).
 
 ## Environment
 
@@ -56,12 +80,16 @@ Required variables:
 | `LIVEKIT_URL` | LiveKit server URL (`wss://...`) |
 | `LIVEKIT_API_KEY` | LiveKit API key |
 | `LIVEKIT_API_SECRET` | LiveKit API secret |
-| `DEEPGRAM_API_KEY` | Deepgram API key (STT) |
+| `DEEPGRAM_API_KEY` | Deepgram API key (STT — Flux model via v2 API) |
 | `ANTHROPIC_API_KEY` | Anthropic API key (brain + safety + extraction) |
 | `BRAIN_MODEL` | Brain model string (default: `claude-sonnet-4-6`) |
 | `WORKER_MODEL` | Worker/safety model (default: `claude-haiku-4-5-20251001`) |
 | `CARTESIA_API_KEY` | Cartesia TTS API key |
-| `ELEVENLABS_API_KEY` | ElevenLabs TTS API key (fallback) |
+| `CARTESIA_VOICE_ID` | Cartesia voice ID (default: `f786b574-daa5-4673-aa0c-cbe3e8534c02`) |
+| `CARTESIA_MODEL_ID` | Cartesia model (default: `sonic-3`) |
+| `ELEVENLABS_API_KEY` | ElevenLabs TTS API key (required when `TTS_PROVIDER=elevenlabs` or `ab`) |
+| `ELEVENLABS_VOICE_ID` | ElevenLabs voice ID (default: `hpp4J3VqNfWAUOO0d1Us`) |
+| `TTS_PROVIDER` | `cartesia` / `elevenlabs` / `ab` (default: `cartesia`) |
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service-role key (bypasses RLS) |
 | `EMBEDDINGS_API_KEY` | Embeddings provider API key |
@@ -72,8 +100,8 @@ Required variables:
 ### AI disclosure (EU AI Act Art. 50)
 The agent speaks the AI disclosure opening line from `prompts/companion.md`
 immediately at session start (`allow_interruptions=False`).  A reminder is
-spoken periodically during long sessions (default: every 10 minutes).  The
-companion never claims to be human.
+spoken periodically during long sessions (default: every 10 minutes,
+`disclosure_reminder_interval_seconds`).  The companion never claims to be human.
 
 ### No raw audio storage
 Only transcript text is persisted.  Audio is processed in-memory by the STT
@@ -96,23 +124,26 @@ and extraction worker both include explicit instructions that input text is
 opaque data, never live commands.  The companion prompt instructs the model to
 ignore user instructions that attempt to change system behaviour.
 
-### livekit-agents API
-The exact class names, event hooks, and plugin constructor signatures in
-`agent.py` were written against livekit-agents >=0.12.  The API has shifted
-frequently between minor versions.  Before M2, run:
+### livekit-agents API (1.x)
+This service is built against **livekit-agents 1.6.1**.  The 1.x API surface:
+- `Agent` replaces the old `VoiceAssistant`.  Sub-class and override
+  `on_user_turn_completed` to hook committed user turns.
+- `AgentSession` manages the pipeline (STT/LLM/TTS/VAD) and emits events
+  (`conversation_item_added`, `close`, etc.).
+- Silero VAD is **bundled** into `AgentSession`; `livekit-plugins-silero` is
+  deprecated and not imported.
+- STT: use `deepgram.STTv2` for the Flux model (`flux-general-en`), not `deepgram.STT`.
 
+Verify the installed version with:
 ```bash
 uv run python -c "import livekit.agents; print(livekit.agents.__version__)"
 ```
-
-and review the changelog.  All uncertain call sites are marked
-`# TODO(M2): confirm against installed livekit-agents API`.
 
 ## Milestone map
 
 | Milestone | Scope in this service |
 |---|---|
-| M0 (now) | Skeleton, config, clients, compliance scaffolding |
-| M2 | Wire live voice loop; confirm livekit-agents API calls |
+| M0 | Skeleton, config, clients, compliance scaffolding |
+| M2 (done) | Live voice loop — Agent/AgentSession wired, Flux STT, A/B TTS, disclosure, safety, transcript |
 | M3 | Production extraction pipeline; task queue; embedding batching |
 | M5 | Safety queue, ops dashboard, async flag notifications |
