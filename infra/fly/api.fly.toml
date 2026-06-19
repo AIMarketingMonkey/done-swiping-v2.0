@@ -1,0 +1,23 @@
+# Fly.io template for the Done Swiping API (Hono).
+# Deploy: fly launch --no-deploy --copy-config --name done-swiping-api
+#         fly secrets set ... && fly deploy
+app = "done-swiping-api"
+primary_region = "lhr" # London — keep UK/EU
+
+[build]
+  # Expects apps/api to provide a Dockerfile or use a Node buildpack.
+
+[env]
+  API_PORT = "8787"
+  APP_REGION = "uk"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

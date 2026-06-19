@@ -1,0 +1,4 @@
+-- Seed data for local development.
+-- Intentionally empty for the M0 foundation — real users are created through
+-- Supabase Auth (sign-up → age assurance → consent) in M1.
+-- Add local test fixtures here as milestones land.

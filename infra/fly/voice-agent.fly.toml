@@ -1,0 +1,18 @@
+# Fly.io template for the Done Swiping voice agent (LiveKit Agents, Python).
+# Long-lived worker process — keep at least one machine running.
+app = "done-swiping-voice-agent"
+primary_region = "lhr" # London — keep UK/EU, low latency to LiveKit EU
+
+[build]
+  # Expects services/voice-agent to provide a Dockerfile (python:3.11-slim + uv).
+
+[env]
+  APP_REGION = "uk"
+
+# The agent connects out to LiveKit; it is a worker, not an HTTP service.
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "1gb"
+
+[processes]
+  agent = "uv run python agent.py start"

@@ -1,0 +1,38 @@
+# Render blueprint (alternative to Fly.io). All services in a UK/EU region.
+services:
+  - type: web
+    name: done-swiping-api
+    runtime: node
+    region: frankfurt
+    plan: starter
+    rootDir: apps/api
+    buildCommand: corepack enable && pnpm install --no-frozen-lockfile && pnpm --filter @done-swiping/api build
+    startCommand: pnpm --filter @done-swiping/api start
+    envVars:
+      - key: API_PORT
+        value: "8787"
+      - key: APP_REGION
+        value: uk
+      # All secrets set in the dashboard (sync:false) — never commit them.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
+  - type: worker
+    name: done-swiping-voice-agent
+    runtime: python
+    region: frankfurt
+    plan: starter
+    rootDir: services/voice-agent
+    buildCommand: pip install uv && uv sync
+    startCommand: uv run python agent.py start
+    envVars:
+      - key: APP_REGION
+        value: uk
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
