@@ -53,7 +53,7 @@ the repo-root `.env` so a single file serves all workspaces.
 | PUT | `/memory/:id` | M3 | JWT | Update a memory item; body must include `kind` |
 | DELETE | `/memory/:id?kind=` | M3 | JWT | Delete item + purge user embeddings (GDPR) |
 | GET | `/memory/export` | M3 | JWT | GDPR Art. 20 data-portability bundle |
-| GET | `/matches` | Stub | JWT | TODO(M4) |
+| GET | `/matches` | M4 | JWT | Deterministic matching; recomputes and refreshes suggestions each call |
 | POST | `/report` | Stub | JWT | TODO(M5) |
 | POST | `/block` | Stub | JWT | TODO(M5) |
 
@@ -132,3 +132,72 @@ Assembles a GDPR Art. 20 data-portability bundle containing: `profiles` row,
 and vectors are excluded by design).  Sets
 `Content-Disposition: attachment; filename="done-swiping-export.json"`.  Writes
 an audit entry (`action: 'memory.export'`).
+
+## Milestone M4 — Deterministic Matching
+
+M4 implements `GET /matches` with a fully deterministic pipeline — no LLM
+re-ranking at MVP. Results are stored in the `matches` table and returned as
+`matchesResponseSchema`.
+
+### Migration required
+
+Before deploying M4, apply the new migration to your Supabase project:
+
+```bash
+supabase migration up
+# or, for the hosted project:
+supabase db push
+```
+
+**Migration file:** `supabase/migrations/20260619120000_m4_matching.sql`
+
+This creates the `match_candidates(p_user uuid)` Postgres function (SECURITY
+DEFINER, `search_path = public, extensions`) and grants EXECUTE to the
+`authenticated` role.
+
+### Matching pipeline
+
+**Stage 1 — Hard filters (SQL, inside `match_candidates()`)**
+Candidates violating any of the authenticated user's hard-filter preferences
+(`is_hard_filter = true` OR `type = 'dealbreaker'`) are excluded. Five profile
+columns are evaluated in SQL: `gender`, `age_band`, `orientation`,
+`location_region`, `relationship_intent`. Unknown preference keys are skipped
+in SQL and may be evaluated in future TS extensions.
+
+**Stage 2 — Compatibility score (TypeScript)**
+A deterministic weighted blend:
+
+| Signal | Weight |
+|---|---|
+| Cosine similarity of `summary` embeddings (pgvector `<=>`) | 0.60 |
+| `profile_attributes` key/value overlap | 0.25 |
+| Active `inferred_traits` key/value overlap | 0.15 |
+
+Overlap = `matched_keys / max(user_count, candidate_count, 1)`.
+Final score is clamped to `[0, 1]` and rounded to 3 d.p.
+
+**Stage 3 — Rationale**
+A plain-English sentence assembled from shared relationship intent, overlapping
+attributes, and traits. No LLM. Example:
+> "You both want something long-term and share interests in hiking and live music."
+
+**Stage 4 — Safety gate (SQL, inside `match_candidates()`)**
+Candidates are excluded if: `age_assurance_status != 'pass'`; active block in
+either direction; open `safety_flags` row. This gate cannot be bypassed by any
+client input.
+
+### Data flow
+
+1. `match_candidates(userId)` RPC → up to 50 candidates with cosine similarity.
+2. Batch-fetch `profile_attributes` + active `inferred_traits` for user + all candidates.
+3. Compute weighted score and build rationale per candidate.
+4. Delete prior `status='suggested'` rows for the user in `matches`.
+5. Insert new rows; return via `matchesResponseSchema`.
+6. Write `audit_log` (`action: 'matches.compute'`).
+
+### Trust boundary
+
+The service-role Supabase client is used for all queries. The authenticated
+`userId` is always sourced from the verified JWT (via `requireAuth` middleware),
+never from client-supplied request data. `p_user` passed to the RPC equals the
+JWT-verified user ID.
