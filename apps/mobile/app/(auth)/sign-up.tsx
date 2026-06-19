@@ -37,8 +37,8 @@ export default function SignUp(): React.JSX.Element {
     } else {
       Alert.alert(
         'Check your email',
-        'We sent you a confirmation link. Click it to activate your account.',
-        [{ text: 'OK', onPress: () => router.back() }],
+        'We sent you a confirmation link. Click it to activate your account, then sign in.',
+        [{ text: 'OK', onPress: () => router.replace('/(auth)/sign-in') }],
       );
     }
   }

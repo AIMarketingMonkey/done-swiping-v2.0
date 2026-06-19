@@ -5,12 +5,16 @@
 import {
   API_ROUTES,
   type BlockInput,
+  type ConsentSubmit,
+  type IdvSessionResponse,
   type MatchesResponse,
   type MemoryResponse,
   type MemoryUpdate,
   type ReportInput,
   type SessionStartResponse,
   blockInputSchema,
+  consentSubmitSchema,
+  idvSessionResponseSchema,
   matchesResponseSchema,
   memoryResponseSchema,
   memoryUpdateSchema,
@@ -120,5 +124,40 @@ export async function block(input: BlockInput): Promise<void> {
   await apiFetch(API_ROUTES.block, {
     method: 'POST',
     body: JSON.stringify(body),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// M1: Identity verification + consent
+// ---------------------------------------------------------------------------
+
+/** POST /idv/session — start a Yoti age-assurance session. */
+export async function startIdvSession(): Promise<IdvSessionResponse> {
+  return apiFetch(API_ROUTES.idvSession, {
+    method: 'POST',
+    parseWith: (json) => idvSessionResponseSchema.parse(json),
+  });
+}
+
+/** POST /consent — record explicit GDPR consent grants. */
+export async function submitConsent(body: ConsentSubmit): Promise<void> {
+  const validated = consentSubmitSchema.parse(body);
+  await apiFetch(API_ROUTES.consent, {
+    method: 'POST',
+    body: JSON.stringify(validated),
+  });
+}
+
+/**
+ * POST /idv/dev/complete — dev-only helper that flips the user's
+ * age_assurance_status without a real Yoti check.
+ *
+ * This method is intentionally unrestricted here; callers are responsible for
+ * only exposing the button in __DEV__ builds.
+ */
+export async function devCompleteIdv(status: 'pass' | 'fail' = 'pass'): Promise<void> {
+  await apiFetch('/idv/dev/complete', {
+    method: 'POST',
+    body: JSON.stringify({ status }),
   });
 }

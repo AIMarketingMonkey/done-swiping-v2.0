@@ -4,30 +4,21 @@
 //
 // Compliance gating (MUST NOT be removed or weakened):
 //   1. Not signed in           → (auth)/sign-in
-//   2. Age assurance not pass  → onboarding/age-gate      (UK CSEA compliance)
+//   2. Age assurance not pass  → onboarding/age-gate      (UK Online Safety Act)
 //   3. Consent not recorded    → onboarding/consent       (GDPR Art. 7 + Art. 9)
-//   4. Voice onboarding done?  → matches (main app)
-//      Otherwise               → onboarding/voice
+//   4. All gates passed        → /matches
 
 import { useAuth } from '@/app/_layout';
+import { useGateState } from '@/lib/useGateState';
 import { Redirect } from 'expo-router';
 import React from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-// TODO(M1): Replace these placeholder flags with real profile/consent reads.
-//   - ageAssuranceStatus: fetch from profiles table (age_assurance_status column)
-//   - consentRecorded: check consent table for data_processing + special_category
-//     grants at the current CONSENT_VERSION
-//   - voiceOnboardingDone: check whether the user has completed at least one
-//     voice session (e.g. a boolean column on the profiles row)
-const PLACEHOLDER_AGE_ASSURANCE_STATUS = 'pending' as 'pending' | 'pass' | 'fail';
-const PLACEHOLDER_CONSENT_RECORDED = false;
-const PLACEHOLDER_VOICE_ONBOARDING_DONE = false;
-
 export default function Index(): React.JSX.Element {
-  const { session, loading } = useAuth();
+  const { session, loading: authLoading } = useAuth();
+  const { loading: gateLoading, ageStatus, hasRequiredConsent } = useGateState(session?.user.id);
 
-  if (loading) {
+  if (authLoading || (session && gateLoading)) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" />
@@ -40,19 +31,14 @@ export default function Index(): React.JSX.Element {
     return <Redirect href="/(auth)/sign-in" />;
   }
 
-  // 2. Age assurance gate — user MUST pass before proceeding.
-  if (PLACEHOLDER_AGE_ASSURANCE_STATUS !== 'pass') {
+  // 2. Age assurance gate — user MUST pass before proceeding (UK Online Safety Act).
+  if (ageStatus !== 'pass') {
     return <Redirect href="/onboarding/age-gate" />;
   }
 
-  // 3. Consent gate — GDPR explicit consent for special-category data.
-  if (!PLACEHOLDER_CONSENT_RECORDED) {
+  // 3. Consent gate — GDPR explicit consent for special-category data (Art. 7 + Art. 9).
+  if (!hasRequiredConsent) {
     return <Redirect href="/onboarding/consent" />;
-  }
-
-  // 4. Voice onboarding — first-run experience.
-  if (!PLACEHOLDER_VOICE_ONBOARDING_DONE) {
-    return <Redirect href="/onboarding/voice" />;
   }
 
   // All gates passed → main app.

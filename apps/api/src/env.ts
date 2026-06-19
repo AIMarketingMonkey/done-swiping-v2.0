@@ -35,6 +35,15 @@ const envSchema = z.object({
   IDV_PROVIDER: z.string().optional(),
   IDV_API_KEY: z.string().optional(),
   IDV_WEBHOOK_SECRET: z.string().optional(),
+  // Yoti-specific credentials (optional — required only when IDV_DEV_MODE is false)
+  IDV_SDK_ID: z.string().optional(),
+  IDV_PEM: z.string().optional(),
+  // Dev-mock mode: set to "true" or "1" to bypass real Yoti calls during local testing.
+  // MUST be false (or unset) in production.
+  IDV_DEV_MODE: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
 
   // Stripe
   STRIPE_SECRET_KEY: z.string().optional(),

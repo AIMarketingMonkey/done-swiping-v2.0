@@ -4,6 +4,9 @@ import { API_ROUTES } from '@done-swiping/shared';
 import { env } from './env.js';
 import sessionRoutes from './routes/session.js';
 import idvWebhookRoutes from './routes/idv-webhook.js';
+import idvSessionRoutes from './routes/idv-session.js';
+import idvDevRoutes from './routes/idv-dev.js';
+import consentRoutes from './routes/consent.js';
 import stripeWebhookRoutes from './routes/stripe-webhook.js';
 import memoryRoutes from './routes/memory.js';
 import matchesRoutes from './routes/matches.js';
@@ -23,6 +26,22 @@ app.get('/health', (c) =>
 // --- Route mounts -----------------------------------------------------------
 // Session (voice session token issuance)
 app.route(API_ROUTES.sessionStart, sessionRoutes);
+
+// IDV — session creation (authenticated)
+app.route(API_ROUTES.idvSession, idvSessionRoutes);
+
+// IDV — dev-mock complete endpoint.
+// WARNING: Only mounted when IDV_DEV_MODE=true.  Must never be active in production.
+if (env.IDV_DEV_MODE) {
+  console.warn(
+    '[api] IDV_DEV_MODE=true — mounting /idv/dev/complete (dev-mock path). ' +
+      'This MUST NOT be enabled in production.',
+  );
+  app.route('/idv/dev', idvDevRoutes);
+}
+
+// Consent recording (authenticated)
+app.route(API_ROUTES.consent, consentRoutes);
 
 // Webhooks — public endpoints, signature-verified inside the handler
 app.route(API_ROUTES.idvWebhook, idvWebhookRoutes);
@@ -48,9 +67,14 @@ app.onError((err, c) => {
 const port = env.API_PORT;
 
 serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`🚀 @done-swiping/api listening on http://localhost:${info.port}`);
+  console.log(`@done-swiping/api listening on http://localhost:${info.port}`);
   console.log('   GET  /health');
   console.log(`   POST ${API_ROUTES.sessionStart}`);
+  console.log(`   POST ${API_ROUTES.idvSession}`);
+  if (env.IDV_DEV_MODE) {
+    console.log('   POST /idv/dev/complete          [DEV ONLY]');
+  }
+  console.log(`   POST ${API_ROUTES.consent}`);
   console.log(`   POST ${API_ROUTES.idvWebhook}`);
   console.log(`   POST ${API_ROUTES.stripeWebhook}`);
   console.log(`   GET  ${API_ROUTES.memory}`);

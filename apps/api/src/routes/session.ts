@@ -3,6 +3,7 @@ import { AccessToken } from 'livekit-server-sdk';
 import { sessionStartResponseSchema } from '@done-swiping/shared';
 import { requireAuth, getUserId } from '../lib/auth.js';
 import { writeAudit } from '../lib/audit.js';
+import { getSupabaseAdmin } from '../lib/supabase-admin.js';
 import { env } from '../env.js';
 
 const session = new Hono();
@@ -19,6 +20,29 @@ const session = new Hono();
  */
 session.post('/start', requireAuth, async (c) => {
   const userId = getUserId(c);
+
+  // --- Age-gate (M1) --------------------------------------------------------
+  // The user must have a passing age-assurance result before they can start a
+  // voice session.  We load the profile via the service-role client (bypasses
+  // RLS) and explicitly scope to the authed userId.
+  const supabase = getSupabaseAdmin();
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('age_assurance_status')
+    .eq('user_id', userId)
+    .single();
+
+  if (profileError || !profile) {
+    console.error('[session] Failed to load profile for age-gate:', profileError?.message);
+    return c.json({ error: 'Could not verify age assurance status' }, 500);
+  }
+
+  if (profile.age_assurance_status !== 'pass') {
+    return c.json({ error: 'age_assurance_required' }, 403);
+  }
+  // --------------------------------------------------------------------------
+
+  // TODO(M6): Check `subscriptions` table for entitlement before issuing token.
 
   // Guard: LiveKit config must be present to serve this endpoint.
   if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {

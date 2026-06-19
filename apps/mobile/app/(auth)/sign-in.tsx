@@ -30,8 +30,10 @@ export default function SignIn(): React.JSX.Element {
     setLoading(false);
     if (error) {
       Alert.alert('Sign-in failed', error.message);
+    } else {
+      // Hand off to the gate in index.tsx which will route to the correct screen.
+      router.replace('/');
     }
-    // On success, the auth state change in _layout.tsx triggers a re-route via index.tsx.
   }
 
   return (

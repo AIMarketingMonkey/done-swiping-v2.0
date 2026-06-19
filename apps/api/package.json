@@ -9,7 +9,8 @@
     "start": "node dist/index.js",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
-    "smoke": "tsx src/scripts/smoke.ts"
+    "smoke": "tsx src/scripts/smoke.ts",
+    "test:rls": "tsx src/scripts/rls-test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0",

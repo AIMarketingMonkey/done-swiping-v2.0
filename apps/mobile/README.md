@@ -64,9 +64,52 @@ The web platform (`pnpm web`) works for all non-audio screens and the demo, but 
 | Memory | `app/memory/index.tsx` | M3 (GET/PUT/DELETE /memory) |
 | Paywall | `app/paywall/index.tsx` | M6 (Stripe Checkout + deep-link) |
 
+## M1 compliance gate
+
+M1 implements the legal gate that every user must pass before reaching the app.
+
+### Gate flow
+
+```
+sign-in / sign-up
+      │
+      ▼
+app/index.tsx  (gate evaluator — runs on every navigation to /)
+      │
+      ├─ no session          → /(auth)/sign-in
+      ├─ ageStatus ≠ 'pass'  → /onboarding/age-gate   (UK Online Safety Act)
+      ├─ consent incomplete  → /onboarding/consent     (GDPR Art. 7 + Art. 9)
+      └─ all pass            → /matches
+```
+
+Gate state is read directly from Supabase (RLS: each user sees only their own rows):
+- `profiles.age_assurance_status` — set by the Yoti webhook via the API
+- `consents` table — `data_processing`, `special_category`, `ai_companion` must all be `granted = true` at `CONSENT_VERSION`
+
+### Testing the age-gate in development
+
+Because the real Yoti check requires a native build, M1 includes a dev-only escape hatch:
+
+1. Run the API (`pnpm --filter @done-swiping/api dev`) — it must be running for the button to work.
+2. Sign in (or sign up) in the app.
+3. On the age-gate screen you will see a purple **"Simulate pass (dev only)"** button below the main "Start age check" button.
+4. Tap it — the API calls `POST /idv/dev/complete` which flips `profiles.age_assurance_status` to `'pass'` for your user.
+5. The gate automatically advances to the consent screen.
+
+This button is wrapped in `if (__DEV__)` and is **invisible in production builds**.
+
+### Real Yoti check (production / native build)
+
+The "Start age check" button calls `POST /idv/session` and opens the returned `url` via `expo-linking`. For the production App Store build:
+
+- Run `pnpm --filter @done-swiping/mobile exec expo prebuild` to generate native projects.
+- Integrate the **Yoti Mobile SDK** (iOS + Android) and replace the `Linking.openURL` call in `app/onboarding/age-gate.tsx` with the SDK's native flow (look for the `TODO(M1)` comment).
+- A Yoti account and API credentials are required — see [yoti.com/developers](https://developers.yoti.com).
+
 ## Key architectural notes
 
-- **Compliance gating** is enforced in `app/index.tsx`. The flow is: auth → age assurance → consent → voice onboarding → main app. None of these gates can be skipped.
-- **AI disclosure** (`AiDisclosureBanner`) is a compliance component (EU AI Act Art. 50). It must remain permanently visible on the voice screen and must not be dismissible.
+- **Compliance gating** is enforced in `app/index.tsx`. The flow is: auth → age assurance → consent → main app. None of these gates can be skipped.
+- **Gate state** (`lib/useGateState.ts`) reads directly from Supabase with RLS — no extra API call needed for reads; the hook returns `refresh()` to re-poll after IDV/consent changes.
+- **AI disclosure** (`AiDisclosureBanner`) is a compliance component (EU AI Act Art. 50). It appears on the consent screen and must remain permanently visible on the voice screen. It must not be dismissible.
 - **Metro config** (`metro.config.js`) is monorepo-aware: it watches the workspace root and sets `nodeModulesPaths` to resolve pnpm-hoisted packages.
 - **Shared types/schemas** (`@done-swiping/shared`) are imported directly by both the API and mobile app — one source of truth for wire formats.

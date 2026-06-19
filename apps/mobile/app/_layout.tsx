@@ -4,10 +4,10 @@
 
 import { supabase } from '@/lib/supabase';
 import { Stack } from 'expo-router';
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import type { Session } from '@supabase/supabase-js';
+import type { Session, User } from '@supabase/supabase-js';
 
 // ---------------------------------------------------------------------------
 // Auth context
@@ -15,11 +15,18 @@ import type { Session } from '@supabase/supabase-js';
 
 interface AuthContextValue {
   session: Session | null;
+  user: User | null;
   /** True while the initial session check is in flight. */
   loading: boolean;
+  signOut: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextValue>({ session: null, loading: true });
+const AuthContext = createContext<AuthContextValue>({
+  session: null,
+  user: null,
+  loading: true,
+  signOut: async () => {},
+});
 
 export function useAuth(): AuthContextValue {
   return useContext(AuthContext);
@@ -50,9 +57,13 @@ export default function RootLayout(): React.JSX.Element {
     return () => subscription.unsubscribe();
   }, []);
 
+  const signOut = useCallback(async () => {
+    await supabase.auth.signOut();
+  }, []);
+
   return (
     <SafeAreaProvider>
-      <AuthContext.Provider value={{ session, loading }}>
+      <AuthContext.Provider value={{ session, user: session?.user ?? null, loading, signOut }}>
         <Stack screenOptions={{ headerShown: false }} />
       </AuthContext.Provider>
     </SafeAreaProvider>
