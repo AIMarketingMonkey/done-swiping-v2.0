@@ -140,9 +140,25 @@ export async function updateMemoryItem(id: number, update: MemoryUpdate): Promis
   });
 }
 
-/** DELETE /memory/:id — remove a single memory item. */
-export async function deleteMemoryItem(id: number): Promise<void> {
-  await apiFetch(API_ROUTES.memoryItem(id), { method: 'DELETE' });
+/** DELETE /memory/:id?kind=... — remove a single memory item.
+ *
+ * The kind param is required by the API so it knows which table to delete from
+ * and can purge any associated server-side embeddings.
+ */
+export async function deleteMemoryItem(
+  id: number,
+  kind: 'stated' | 'inferred' | 'preference',
+): Promise<void> {
+  await apiFetch(`${API_ROUTES.memoryItem(id)}?kind=${kind}`, { method: 'DELETE' });
+}
+
+/** GET /memory/export — returns the user's full memory bundle as a JSON object.
+ *
+ * Use this for the GDPR "export my data" action. The caller is responsible for
+ * presenting the result to the user (share sheet, modal, clipboard, etc.).
+ */
+export async function exportMemory(): Promise<unknown> {
+  return apiFetch(API_ROUTES.memoryExport, { method: 'GET' });
 }
 
 /** GET /matches — returns current match suggestions with rationale. */

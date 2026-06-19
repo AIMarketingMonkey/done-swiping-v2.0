@@ -74,7 +74,7 @@ npx eas build --profile development --platform android
 | Consent | `app/onboarding/consent.tsx` | M1 (real API consent recording) |
 | Voice Onboarding | `app/onboarding/voice.tsx` | M2 (LiveKit + /session/start) — **dev build required** |
 | Matches | `app/matches/index.tsx` | M4 (GET /matches, accept/decline) |
-| Memory | `app/memory/index.tsx` | M3 (GET/PUT/DELETE /memory) |
+| Memory | `app/memory/index.tsx` | M3 (GET/PUT/DELETE /memory, export) — **done** |
 | Paywall | `app/paywall/index.tsx` | M6 (Stripe Checkout + deep-link) |
 
 ## M1 compliance gate
@@ -126,3 +126,34 @@ The "Start age check" button calls `POST /idv/session` and opens the returned `u
 - **AI disclosure** (`AiDisclosureBanner`) is a compliance component (EU AI Act Art. 50). It appears on the consent screen and must remain permanently visible on the voice screen. It must not be dismissible.
 - **Metro config** (`metro.config.js`) is monorepo-aware: it watches the workspace root and sets `nodeModulesPaths` to resolve pnpm-hoisted packages.
 - **Shared types/schemas** (`@done-swiping/shared`) are imported directly by both the API and mobile app — one source of truth for wire formats.
+
+## M3 Memory screen
+
+The Memory screen (`app/memory/index.tsx`) lets users inspect, edit, delete, and export
+everything the AI companion has learned about them.
+
+### Three sections
+
+| Section | Source | Visual indicator |
+|---|---|---|
+| Stated | Things the user said directly | Plain white card |
+| Inferred | Model proposals from conversation | Purple-tinted card + "AI suggested" tag + confidence bar |
+| Preferences | Desired partner traits / dealbreakers | Plain card + hard-filter toggle |
+
+### Key behaviours
+
+- **Pull-to-refresh** re-fetches `GET /memory`.
+- **Inferred items** show a confidence bar (colour-coded green/amber/red) and a status
+  badge (active / contradicted / decayed). The user can Correct (edit the `trait_value`)
+  or Remove.
+- **Preferences** have a hard-filter `Switch`. Toggling calls `PUT /memory/:id` with
+  `is_hard_filter`. The label explicitly states "only you can set this, never the AI"
+  (compliance: the AI must never set hard filters).
+- **Delete** shows a confirmation alert noting the deletion is permanent and removes the
+  item from AI embeddings on the server (`DELETE /memory/:id?kind=...`).
+  See `TODO(M3)` in the file for the embedding-purge verification note.
+- **Export my data** (GDPR) calls `GET /memory/export` and opens the native Share sheet.
+  On platforms where Share is unavailable (web), a scrollable modal shows the raw JSON
+  with selectable text as a copy fallback.
+- **Navigation**: a "My profile" button in the top-right of the Matches screen pushes
+  `/memory`.

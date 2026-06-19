@@ -8,6 +8,7 @@
 
 import { Screen } from '@/components/Screen';
 import type { MatchesResponse } from '@done-swiping/shared';
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -39,6 +40,7 @@ function scoreColor(score: number): string {
 
 export default function MatchesScreen(): React.JSX.Element {
   const [matches] = useState<MatchesResponse>(PLACEHOLDER_MATCHES);
+  const router = useRouter();
 
   function handleAccept(user: string): void {
     // TODO(M4): Call PATCH /matches/:id with status: 'accepted'.
@@ -53,7 +55,12 @@ export default function MatchesScreen(): React.JSX.Element {
   return (
     <Screen style={styles.content}>
       <ScrollView showsVerticalScrollIndicator={false}>
-        <Text style={styles.heading}>Your matches</Text>
+        <View style={styles.topRow}>
+          <Text style={styles.heading}>Your matches</Text>
+          <Pressable onPress={() => router.push('/memory')} style={styles.memoryLink}>
+            <Text style={styles.memoryLinkText}>My profile</Text>
+          </Pressable>
+        </View>
         <Text style={styles.subtext}>
           Matches are ranked by compatibility based on your voice conversation.
         </Text>
@@ -107,11 +114,30 @@ const styles = StyleSheet.create({
   content: {
     paddingTop: 8,
   },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginTop: 16,
+    marginBottom: 4,
+  },
   heading: {
     fontSize: 24,
     fontWeight: '700',
-    marginBottom: 4,
-    marginTop: 16,
+    color: '#111827',
+  },
+  memoryLink: {
+    marginTop: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: '#7C3AED',
+    borderRadius: 6,
+  },
+  memoryLinkText: {
+    fontSize: 13,
+    color: '#7C3AED',
+    fontWeight: '600',
   },
   subtext: {
     fontSize: 14,

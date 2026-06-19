@@ -49,10 +49,10 @@ the repo-root `.env` so a single file serves all workspaces.
 | POST | `/consent` | M1 | JWT | Records consent choices; upserts into `consents` table |
 | POST | `/webhooks/idv` | M1 | HMAC-SHA256 sig | Receives Yoti outcome; updates `profiles.age_assurance_status` |
 | POST | `/webhooks/stripe` | Stub | Stripe sig | TODO(M6) subscription upsert |
-| GET | `/memory` | Stub | JWT | TODO(M3) real queries |
-| PUT | `/memory/:id` | Stub | JWT | TODO(M3) |
-| DELETE | `/memory/:id` | Stub | JWT | TODO(M3) incl. embeddings |
-| GET | `/memory/export` | Stub | JWT | TODO(M3) GDPR bundle |
+| GET | `/memory` | M3 | JWT | Returns stated facts, inferred traits, preferences |
+| PUT | `/memory/:id` | M3 | JWT | Update a memory item; body must include `kind` |
+| DELETE | `/memory/:id?kind=` | M3 | JWT | Delete item + purge user embeddings (GDPR) |
+| GET | `/memory/export` | M3 | JWT | GDPR Art. 20 data-portability bundle |
 | GET | `/matches` | Stub | JWT | TODO(M4) |
 | POST | `/report` | Stub | JWT | TODO(M5) |
 | POST | `/block` | Stub | JWT | TODO(M5) |
@@ -92,3 +92,43 @@ bypasses Row Level Security. This key:
   writes, and admin queries that legitimately cross RLS boundaries.
 
 All privileged actions write to `audit_log` via `src/lib/audit.ts`.
+
+## Milestone M3 — Memory API
+
+M3 implements the four memory endpoints backed by three DB tables:
+`profile_attributes` (stated facts), `inferred_traits`, and `preferences`.
+
+### Endpoint details
+
+**GET /memory**
+Queries all three tables scoped to the authenticated user and returns a
+response validated against `memoryResponseSchema` from `@done-swiping/shared`.
+
+**PUT /memory/:id**
+Body must match `memoryUpdateSchema` (requires `kind: 'stated'|'inferred'|'preference'`).
+Allowed field updates per kind:
+- `stated` → `value`
+- `inferred` → `trait_value` and/or `status`
+- `preference` → `value` and/or `is_hard_filter`
+
+The AI model never sets `is_hard_filter`; only explicit user actions reach this
+endpoint so toggling it here is correct and safe.  Returns the updated row or
+404 if the item is not found / not owned by the caller.  Writes an audit entry
+(`action: 'memory.update'`).
+
+**DELETE /memory/:id?kind=stated|inferred|preference**
+Deletes the item from the appropriate table, then **purges all of the user's
+rows in the `embeddings` table**.  Embeddings are derived from the full profile;
+after any deletion it is impossible to isolate which vectors encoded the removed
+fact, so the correct GDPR approach is to purge all of the user's vectors.  The
+extraction pipeline regenerates them from the remaining (post-deletion) data on
+the next scheduled run.  Returns 204.  Writes an audit entry (`action:
+'memory.delete'`) including `embeddings_purged` flag.
+
+**GET /memory/export**
+Assembles a GDPR Art. 20 data-portability bundle containing: `profiles` row,
+`profile_attributes[]`, `inferred_traits[]`, `preferences[]`, `consents[]`, and
+`conversations[]` (id, started_at, ended_at, summary only — raw transcript turns
+and vectors are excluded by design).  Sets
+`Content-Disposition: attachment; filename="done-swiping-export.json"`.  Writes
+an audit entry (`action: 'memory.export'`).

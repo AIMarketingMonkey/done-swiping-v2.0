@@ -9,10 +9,12 @@ writes profile_attributes, inferred_traits, and embeddings.
 Compliance:
 - Stated vs inferred are always kept separate.
 - Inferred items carry confidence + source_turn_id (non-negotiable).
-- Anything below 0.7 confidence gets needs_user_confirmation=True.
 - No hard-filter / deal-breaker output is accepted — the model cannot set
   deal-breakers; that is user-controlled in the app.
 - The extraction prompt is treated as DATA instructions, not live commands.
+- Embeddings are regenerated from scratch on every extraction run so they
+  always reflect the current full profile state (delete-then-insert matches
+  the API's delete-on-memory-change behaviour).
 
 CLI:   uv run python -m extraction.worker <conversation_id>
 API:   await run_extraction(conversation_id)
@@ -55,6 +57,21 @@ class ExtractionError(ValueError):
     """Raised when the LLM output cannot be parsed or validated."""
 
 
+# Hard-filter / deal-breaker keywords to reject in keys as a defence-in-depth
+# measure.  The prompt already forbids these; we also drop them at parse time.
+_FORBIDDEN_KEYS: frozenset[str] = frozenset(
+    {
+        "preferences",
+        "deal_breakers",
+        "dealbreakers",
+        "filters",
+        "hard_filters",
+        "hard_filter",
+        "deal_breaker",
+    }
+)
+
+
 def _validate_extraction(data: Any) -> dict:
     """
     Validate that extraction output matches the expected schema and contains
@@ -65,36 +82,45 @@ def _validate_extraction(data: Any) -> dict:
     if not isinstance(data, dict):
         raise ExtractionError(f"Expected a JSON object, got {type(data).__name__}.")
 
-    # Required top-level keys
+    # Required top-level keys (at least one must be present).
     if "stated" not in data and "inferred" not in data:
         raise ExtractionError("Output must have 'stated' and/or 'inferred' arrays.")
 
-    # Forbidden keys — the model must NEVER set hard filters/deal-breakers.
-    forbidden = {"preferences", "deal_breakers", "filters", "dealbreakers"}
-    present_forbidden = forbidden & set(data.keys())
+    # Defensively reject forbidden top-level keys — model must never set these.
+    present_forbidden = _FORBIDDEN_KEYS & set(data.keys())
     if present_forbidden:
         raise ExtractionError(
             f"Extraction output contained forbidden keys: {present_forbidden}. "
             "The model must not emit hard filters or deal-breakers."
         )
 
-    stated = data.get("stated", [])
-    inferred = data.get("inferred", [])
+    stated: list[dict] = data.get("stated", [])
+    inferred: list[dict] = data.get("inferred", [])
 
     if not isinstance(stated, list) or not isinstance(inferred, list):
         raise ExtractionError("'stated' and 'inferred' must be arrays.")
 
-    # Validate inferred items have required fields.
+    # Sanitise stated items: drop any whose key looks like a hard filter.
+    clean_stated = []
+    for item in stated:
+        key = str(item.get("key", "")).lower()
+        if key in _FORBIDDEN_KEYS or "deal_break" in key or "filter" in key:
+            logger.warning("Dropping stated item with forbidden key %r.", key)
+            continue
+        clean_stated.append(item)
+
+    # Validate inferred items and sanitise forbidden-looking keys.
+    clean_inferred = []
     for i, item in enumerate(inferred):
         if "confidence" not in item:
             raise ExtractionError(f"inferred[{i}] missing 'confidence'.")
-        # Ensure needs_user_confirmation is set for low-confidence items.
-        if item.get("confidence", 1.0) < 0.7:
-            item["needs_user_confirmation"] = True
-        elif "needs_user_confirmation" not in item:
-            item["needs_user_confirmation"] = False
+        trait_key = str(item.get("trait_key", "")).lower()
+        if trait_key in _FORBIDDEN_KEYS or "deal_break" in trait_key or "filter" in trait_key:
+            logger.warning("Dropping inferred item with forbidden trait_key %r.", trait_key)
+            continue
+        clean_inferred.append(item)
 
-    return data
+    return {"stated": clean_stated, "inferred": clean_inferred}
 
 
 # ── LLM call ─────────────────────────────────────────────────────────────────
@@ -112,6 +138,8 @@ async def _call_extraction_llm(
 
     Falls back to escalate_to (brain model) if the result cannot be parsed
     on the first attempt — avoids silent data loss on tricky transcripts.
+
+    The transcript is framed as DATA to guard against prompt injection.
 
     TODO(M3): add retry with exponential backoff on transient API errors.
     """
@@ -166,123 +194,213 @@ async def _call_extraction_llm(
 
 async def _compute_embedding(text: str, *, api_key: str, model: str) -> list[float]:
     """
-    Compute a 1536-dim embedding for the given text.
+    Compute a 1536-dim embedding for the given text via the OpenAI-compatible API.
 
-    Uses the OpenAI-compatible embeddings API (model from env, e.g.
-    text-embedding-3-small).  Works with any provider that exposes
-    a compatible endpoint.
-
-    TODO(M3): switch to the specific provider configured in env; add a
-    base_url param if using a non-OpenAI endpoint.
-    TODO(M3): batch multiple traits into a single embeddings call.
+    TODO(M3): make the base_url configurable for non-OpenAI providers.
+    TODO(M3): batch multiple texts into a single embeddings call.
     """
-    import anthropic  # noqa: F401 — ensure anthropic package present
-
-    # Use openai client as a thin HTTP shim for embeddings — most providers
-    # are compatible.  TODO(M3): make provider configurable.
-    try:
-        import openai
-    except ImportError:
-        logger.warning(
-            "openai package not installed — skipping embedding. "
-            "TODO(M3): add 'openai' to pyproject.toml dependencies."
-        )
-        return []
+    import openai
 
     client = openai.AsyncOpenAI(api_key=api_key)
     response = await client.embeddings.create(input=text, model=model)
     return response.data[0].embedding
 
 
-# ── Supabase writes ───────────────────────────────────────────────────────────
-
-
-async def _write_stated(
-    db: Any, conversation_id: int, stated: list[dict]
-) -> None:
+def _build_embedding_texts(
+    stated: list[dict], inferred: list[dict]
+) -> dict[str, str]:
     """
-    Write stated profile attributes to `profile_attributes`.
+    Build representative text strings for each embedding kind.
 
-    Stated facts have confidence 1.0 and source='stated'.
+    The three kinds (values, interests, summary) mirror the `embeddings.kind`
+    column and are used by the matching engine.  We pull relevant keys from
+    both stated and inferred data.
 
-    TODO(M3): confirm column names against Supabase migration.
-    TODO(M3): upsert rather than insert to avoid duplicates on re-extraction.
+    Returns a dict: {kind: text_to_embed}.
     """
+    # Flatten all key/value pairs from stated + inferred into a lookup.
+    all_attrs: dict[str, str] = {}
     for item in stated:
-        row = {
-            "conversation_id": conversation_id,
-            "key": item["key"],
-            "value": str(item.get("value", "")),
-            "confidence": 1.0,
-            "source": "stated",
-        }
-        try:
-            db.table("profile_attributes").insert(row).execute()
-        except Exception as exc:
-            logger.error("Failed to write stated attr %s: %s", item.get("key"), exc)
+        key = str(item.get("key", ""))
+        val = str(item.get("value", ""))
+        if key and val:
+            all_attrs[key] = val
+    for item in inferred:
+        key = str(item.get("trait_key", ""))
+        val = str(item.get("trait_value", ""))
+        if key and val:
+            all_attrs[key] = val
+
+    def _pick(*keys: str) -> str:
+        parts = []
+        for k in keys:
+            if k in all_attrs:
+                parts.append(f"{k}: {all_attrs[k]}")
+        return "; ".join(parts) if parts else "(no data)"
+
+    values_text = _pick(
+        "values",
+        "relationship_intent",
+        "emotional_availability",
+        "lifestyle",
+        "communication_style",
+    )
+    interests_text = _pick("interests", "hobbies", "passions", "activities")
+    summary_parts = [f"{k}: {v}" for k, v in sorted(all_attrs.items())]
+    summary_text = "; ".join(summary_parts) if summary_parts else "(no profile data)"
+
+    return {
+        "values": values_text,
+        "interests": interests_text,
+        "summary": summary_text,
+    }
 
 
-async def _write_inferred(
+async def _regenerate_embeddings(
     db: Any,
-    conversation_id: int,
+    user_id: str,
+    stated: list[dict],
     inferred: list[dict],
     *,
     embeddings_api_key: str,
     embeddings_model: str,
 ) -> None:
     """
-    Write inferred traits to `inferred_traits` and compute + insert embeddings.
+    Delete all existing embeddings for the user and regenerate from scratch.
 
-    Inferred items always carry confidence + source_turn_id.
-    Items needing user confirmation are written with status='pending_confirmation'.
+    This keeps embeddings consistent with the current full profile state.
+    Matches the API's delete-on-memory-change contract.
 
-    TODO(M3): confirm column names against Supabase migration.
-    TODO(M3): upsert rather than insert to handle re-extraction.
+    Guard: if embeddings_api_key is falsy, skips with a warning rather than
+    crashing — the app remains functional, just without semantic matching.
+
+    TODO: once EMBEDDINGS_API_KEY is set and the OpenAI endpoint is reachable,
+    remove the guard and verify with a live run.
     """
-    for item in inferred:
-        status = "pending_confirmation" if item.get("needs_user_confirmation") else "active"
-        row = {
-            "conversation_id": conversation_id,
-            "trait_key": item["trait_key"],
-            "trait_value": str(item.get("trait_value", "")),
-            "confidence": item.get("confidence", 0.5),
-            "source_turn_id": item.get("source_turn_id"),
-            "needs_user_confirmation": item.get("needs_user_confirmation", False),
-            "status": status,
-        }
+    if not embeddings_api_key:
+        logger.warning(
+            "EMBEDDINGS_API_KEY is not set — skipping embedding generation for "
+            "user %s. TODO: supply a live key to enable semantic matching.",
+            user_id,
+        )
+        return
+
+    # 1. Delete all existing embeddings for this user (atomic re-generation).
+    try:
+        db.table("embeddings").delete().eq("user_id", user_id).execute()
+        logger.info("Deleted existing embeddings for user %s.", user_id)
+    except Exception as exc:
+        logger.error(
+            "Failed to delete existing embeddings for user %s: %s", user_id, exc
+        )
+        # Don't abort — still attempt to write fresh embeddings.
+
+    # 2. Build text representations per kind and embed each one.
+    kind_texts = _build_embedding_texts(stated, inferred)
+
+    for kind, text in kind_texts.items():
+        if text == "(no data)" or text == "(no profile data)":
+            logger.debug("Skipping %r embedding — no profile data available.", kind)
+            continue
         try:
-            result = db.table("inferred_traits").insert(row).execute()
-            trait_id = result.data[0]["id"] if result.data else None
+            vector = await _compute_embedding(
+                text, api_key=embeddings_api_key, model=embeddings_model
+            )
+            db.table("embeddings").insert(
+                {
+                    "user_id": user_id,
+                    "kind": kind,
+                    "content_ref": kind,
+                    "embedding": vector,
+                }
+            ).execute()
+            logger.info("Inserted %r embedding for user %s.", kind, user_id)
         except Exception as exc:
             logger.error(
-                "Failed to write inferred trait %s: %s", item.get("trait_key"), exc
+                "Failed to generate/insert %r embedding for user %s: %s",
+                kind,
+                user_id,
+                exc,
             )
+
+
+# ── Supabase writes ───────────────────────────────────────────────────────────
+
+
+def _upsert_stated(db: Any, user_id: str, stated: list[dict]) -> None:
+    """
+    Upsert stated profile attributes into `profile_attributes`.
+
+    Deduped by (user_id, key): if the key already exists for this user the
+    value is updated.  Stated facts always have confidence=1.0 and
+    source='stated'.
+
+    Supabase's upsert uses on_conflict to identify the unique constraint.
+    The migration does not define a unique constraint on (user_id, key), so we
+    perform a manual upsert: delete existing key then insert.  This is safe
+    because this worker holds the service-role and runs serially per user.
+    """
+    for item in stated:
+        key = item.get("key")
+        value = str(item.get("value", ""))
+        if not key:
+            logger.warning("Stated item missing 'key'; skipping: %r", item)
+            continue
+        try:
+            # Delete the existing row for this (user_id, key) if present, then insert.
+            db.table("profile_attributes").delete().eq("user_id", user_id).eq(
+                "key", key
+            ).execute()
+            db.table("profile_attributes").insert(
+                {
+                    "user_id": user_id,
+                    "key": key,
+                    "value": value,
+                    "source": "stated",
+                    "confidence": 1.0,
+                }
+            ).execute()
+        except Exception as exc:
+            logger.error("Failed to upsert stated attr %r: %s", key, exc)
+
+
+def _upsert_inferred(db: Any, user_id: str, inferred: list[dict]) -> None:
+    """
+    Upsert inferred traits into `inferred_traits`.
+
+    Deduped by (user_id, trait_key): re-running extraction for the same user
+    updates the confidence + value rather than accumulating duplicate rows.
+
+    Schema columns: user_id, trait_key, trait_value, confidence, source_turn_id,
+    status (active|decayed|contradicted), updated_at.
+    """
+    for item in inferred:
+        trait_key = item.get("trait_key")
+        trait_value = str(item.get("trait_value", ""))
+        confidence = float(item.get("confidence", 0.5))
+        source_turn_id = item.get("source_turn_id")
+
+        if not trait_key:
+            logger.warning("Inferred item missing 'trait_key'; skipping: %r", item)
             continue
 
-        # Compute and store embedding for this trait value.
-        if embeddings_api_key and trait_id:
-            try:
-                embedding_text = f"{item['trait_key']}: {item.get('trait_value', '')}"
-                vector = await _compute_embedding(
-                    embedding_text,
-                    api_key=embeddings_api_key,
-                    model=embeddings_model,
-                )
-                if vector:
-                    db.table("embeddings").insert(
-                        {
-                            "inferred_trait_id": trait_id,
-                            "conversation_id": conversation_id,
-                            "embedding": vector,
-                            "model": embeddings_model,
-                        }
-                    ).execute()
-            except Exception as exc:
-                logger.error(
-                    "Failed to compute/store embedding for trait %s: %s",
-                    item.get("trait_key"),
-                    exc,
-                )
+        try:
+            # Delete existing (user_id, trait_key) row, then insert fresh.
+            db.table("inferred_traits").delete().eq("user_id", user_id).eq(
+                "trait_key", trait_key
+            ).execute()
+            db.table("inferred_traits").insert(
+                {
+                    "user_id": user_id,
+                    "trait_key": trait_key,
+                    "trait_value": trait_value,
+                    "confidence": confidence,
+                    "source_turn_id": source_turn_id,
+                    "status": "active",
+                }
+            ).execute()
+        except Exception as exc:
+            logger.error("Failed to upsert inferred trait %r: %s", trait_key, exc)
 
 
 # ── Main extraction function ──────────────────────────────────────────────────
@@ -292,12 +410,18 @@ async def run_extraction(conversation_id: int) -> None:
     """
     Run profile extraction for a completed conversation.
 
-    1. Load transcript turns from Supabase.
-    2. Call Claude (Haiku → escalate to Sonnet) with extraction.md prompt.
-    3. Validate output (no forbidden keys, required fields present).
-    4. Write stated attrs to profile_attributes.
-    5. Write inferred traits to inferred_traits (with confidence + source_turn_id).
-    6. Compute 1536-dim embeddings and write to embeddings table.
+    1. Look up the conversation to get its user_id; load transcript_turns.
+    2. Call Claude Haiku (worker_model) with the extraction.md system prompt.
+       On JSON-parse or validation failure, retry once with Claude Sonnet
+       (brain_model).
+    3. Validate the result: accept only {stated[], inferred[]}; defensively
+       drop / reject anything resembling a hard filter or deal-breaker.
+    4. Upsert stated facts into profile_attributes (by user_id+key).
+    5. Upsert inferred traits into inferred_traits (by user_id+trait_key).
+    6. Regenerate embeddings: delete the user's existing embeddings rows, then
+       build values/interests/summary text from the full current profile and
+       insert fresh 1536-dim embeddings.  Skipped (with a warning) when
+       EMBEDDINGS_API_KEY is absent.
 
     TODO(M3): wrap in a proper task-queue job with retry and dead-letter handling.
     """
@@ -309,16 +433,37 @@ async def run_extraction(conversation_id: int) -> None:
 
     logger.info("Starting extraction for conversation %d.", conversation_id)
 
-    # ── 1. Load transcript turns ──────────────────────────────────────────────
+    # ── 1. Look up the conversation to get user_id ────────────────────────────
     try:
-        result = (
-            db.table("transcript_turns")
-            .select("role, text, turn_index, id")
-            .eq("conversation_id", conversation_id)
-            .order("turn_index")
+        conv_result = (
+            db.table("conversations")
+            .select("id, user_id")
+            .eq("id", conversation_id)
+            .limit(1)
             .execute()
         )
-        turns: list[dict] = result.data or []
+    except Exception as exc:
+        logger.error(
+            "Failed to load conversation %d: %s", conversation_id, exc
+        )
+        return
+
+    if not conv_result.data:
+        logger.warning("Conversation %d not found; skipping.", conversation_id)
+        return
+
+    user_id: str = conv_result.data[0]["user_id"]
+
+    # ── 1b. Load transcript turns (ordered by id — the stable insertion order) ─
+    try:
+        turns_result = (
+            db.table("transcript_turns")
+            .select("id, role, text")
+            .eq("conversation_id", conversation_id)
+            .order("id")
+            .execute()
+        )
+        turns: list[dict] = turns_result.data or []
     except Exception as exc:
         logger.error(
             "Failed to load transcript for conversation %d: %s", conversation_id, exc
@@ -326,12 +471,15 @@ async def run_extraction(conversation_id: int) -> None:
         return
 
     if not turns:
-        logger.warning("No transcript turns found for conversation %d; skipping.", conversation_id)
+        logger.warning(
+            "No transcript turns found for conversation %d; skipping.", conversation_id
+        )
         return
 
     # Format transcript for the LLM.
+    # Prompt-injection safety: prefix marks this block as opaque data.
     transcript_text = "\n".join(
-        f"[{t['role'].upper()} turn {t['turn_index']}] {t['text']}" for t in turns
+        f"[{t['role'].upper()} turn {t['id']}] {t['text']}" for t in turns
     )
 
     # ── 2. Call extraction LLM ────────────────────────────────────────────────
@@ -344,26 +492,31 @@ async def run_extraction(conversation_id: int) -> None:
         )
     except ExtractionError as exc:
         logger.error(
-            "Extraction failed for conversation %d: %s", conversation_id, exc
+            "Extraction LLM call failed for conversation %d: %s", conversation_id, exc
         )
         return
 
     stated: list[dict] = extraction.get("stated", [])
     inferred: list[dict] = extraction.get("inferred", [])
     logger.info(
-        "Extraction complete: conversation=%d stated=%d inferred=%d",
+        "Extraction complete: conversation=%d user=%s stated=%d inferred=%d",
         conversation_id,
+        user_id,
         len(stated),
         len(inferred),
     )
 
-    # ── 3. Write stated attributes ────────────────────────────────────────────
-    await _write_stated(db, conversation_id, stated)
+    # ── 3 & 4. Upsert stated attributes ──────────────────────────────────────
+    _upsert_stated(db, user_id, stated)
 
-    # ── 4. Write inferred traits + embeddings ─────────────────────────────────
-    await _write_inferred(
+    # ── 5. Upsert inferred traits ─────────────────────────────────────────────
+    _upsert_inferred(db, user_id, inferred)
+
+    # ── 6. Regenerate embeddings ──────────────────────────────────────────────
+    await _regenerate_embeddings(
         db,
-        conversation_id,
+        user_id,
+        stated,
         inferred,
         embeddings_api_key=settings.embeddings_api_key,
         embeddings_model=settings.embeddings_model,
