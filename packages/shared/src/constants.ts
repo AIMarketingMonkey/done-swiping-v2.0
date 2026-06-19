@@ -21,6 +21,8 @@ export const TRANSCRIPT_RETENTION_DAYS = 30;
 // --- Enums (kept in sync with the SQL schema) --------------------------------
 export const AGE_ASSURANCE_STATUS = ['pending', 'pass', 'fail'] as const;
 export const VERIFICATION_STATUS = ['none', 'verified'] as const;
+/** Age-assurance / ID providers. Yoti selected for the UK-first launch. */
+export const IDV_PROVIDER = ['yoti', 'persona'] as const;
 export const PREFERENCE_TYPE = ['preference', 'dealbreaker'] as const;
 export const TRANSCRIPT_ROLE = ['user', 'assistant'] as const;
 export const INFERRED_TRAIT_STATUS = ['active', 'decayed', 'contradicted'] as const;
@@ -76,6 +78,8 @@ export const API_ROUTES = {
   sessionStart: '/session/start',
   stripeWebhook: '/webhooks/stripe',
   idvWebhook: '/webhooks/idv',
+  idvSession: '/idv/session',
+  consent: '/consent',
   memory: '/memory',
   memoryItem: (id: string | number) => `/memory/${id}`,
   memoryExport: '/memory/export',

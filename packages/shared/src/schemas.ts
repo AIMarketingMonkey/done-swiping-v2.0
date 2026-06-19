@@ -6,6 +6,7 @@ import {
   AGE_ASSURANCE_STATUS,
   CONSENT_SCOPE,
   EMBEDDING_KIND,
+  IDV_PROVIDER,
   INFERRED_TRAIT_STATUS,
   MATCH_STATUS,
   PREFERENCE_TYPE,
@@ -31,6 +32,12 @@ export const consentInputSchema = z.object({
   version: z.string(),
 });
 export type ConsentInput = z.infer<typeof consentInputSchema>;
+
+// Consent screen submits all grants at once (POST /consent).
+export const consentSubmitSchema = z.object({
+  consents: z.array(consentInputSchema).min(1),
+});
+export type ConsentSubmit = z.infer<typeof consentSubmitSchema>;
 
 // --- Session start (POST /session/start) -------------------------------------
 export const sessionStartResponseSchema = z.object({
@@ -139,6 +146,18 @@ export const idvWebhookSchema = z.object({
   reference: z.string().optional(),
 });
 export type IdvWebhook = z.infer<typeof idvWebhookSchema>;
+
+// --- IDV session start (POST /idv/session) -----------------------------------
+// The app asks the API to open an age-assurance session; the API returns
+// whatever the client needs to launch the provider's flow (Yoti: a session id +
+// client token, or a hosted URL).
+export const idvSessionResponseSchema = z.object({
+  provider: z.enum(IDV_PROVIDER),
+  session_id: z.string(),
+  client_session_token: z.string().optional(),
+  url: z.string().url().optional(),
+});
+export type IdvSessionResponse = z.infer<typeof idvSessionResponseSchema>;
 
 // --- Safety classification (per-turn Haiku check) ----------------------------
 export const safetyClassificationSchema = z.object({
