@@ -1,11 +1,24 @@
 -- ============================================================================
 -- Done Swiping — one-shot schema setup for the Supabase SQL Editor.
 -- Paste this entire file into the SQL Editor (New query) and click Run.
--- It is the concatenation of supabase/migrations/* (init + RLS + M1 trigger),
--- safe to run ONCE on a fresh project. For CLI/psql workflows use the
--- individual migration files instead.
+--
+-- ⚠️  This RESETS the app tables (drops + recreates them) so it is safe to
+--     re-run on a FRESH project. It only touches Done Swiping's own tables in
+--     the public schema — never Supabase-managed schemas (auth, storage, …).
+--     Do NOT run this against a database that already holds real data.
 -- ============================================================================
 set search_path = public, extensions;
+
+-- ── Reset (drop app objects so this file is idempotent) ───────────────────
+drop trigger if exists on_auth_user_created on auth.users;
+drop function if exists public.handle_new_user() cascade;
+drop table if exists
+  public.audit_log, public.subscriptions, public.matches, public.blocks,
+  public.reports, public.safety_flags, public.consents,
+  public.transcript_turns, public.conversations, public.embeddings,
+  public.preferences, public.inferred_traits, public.profile_attributes,
+  public.profiles
+cascade;
 
 -- ────────────────────────────────────────────────────────────────────────
 -- migrations/20260619090000_init.sql
