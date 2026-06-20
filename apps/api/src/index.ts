@@ -11,6 +11,7 @@ import stripeWebhookRoutes from './routes/stripe-webhook.js';
 import memoryRoutes from './routes/memory.js';
 import matchesRoutes from './routes/matches.js';
 import reportRoutes from './routes/report.js';
+import adminRoutes from './routes/admin.js';
 
 const app = new Hono();
 
@@ -54,6 +55,9 @@ app.route(API_ROUTES.matches, matchesRoutes);
 // Report and block share a router mounted at root (paths are /report, /block)
 app.route('/', reportRoutes);
 
+// Staff-gated moderation console
+app.route('/admin', adminRoutes);
+
 // --- 404 catch-all ----------------------------------------------------------
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 
@@ -84,6 +88,10 @@ serve({ fetch: app.fetch, port }, (info) => {
   console.log(`   GET  ${API_ROUTES.matches}`);
   console.log(`   POST ${API_ROUTES.report}`);
   console.log(`   POST ${API_ROUTES.block}`);
+  console.log(`   GET  ${API_ROUTES.adminFlags}         [staff only]`);
+  console.log(`   POST /admin/flags/:id                 [staff only]`);
+  console.log(`   GET  ${API_ROUTES.adminReports}       [staff only]`);
+  console.log(`   POST /admin/reports/:id               [staff only]`);
 });
 
 export default app;

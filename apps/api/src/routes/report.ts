@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { reportInputSchema, blockInputSchema } from '@done-swiping/shared';
 import { requireAuth, getUserId } from '../lib/auth.js';
+import { getSupabaseAdmin } from '../lib/supabase-admin.js';
 import { writeAudit } from '../lib/audit.js';
 
 const report = new Hono();
@@ -8,10 +9,9 @@ const report = new Hono();
 /**
  * POST /report
  *
- * Submits a safety report against another user.
- *
- * TODO(M5): Insert into `reports` table, trigger moderation queue notification,
- *   and optionally apply an auto-shadow-ban for critical severity flags.
+ * Submits a safety report against another user; inserts into `reports`
+ * (status 'open') for the moderation queue.
+ * TODO(M7): notify moderators on submit / auto-action critical-severity reports.
  */
 report.post('/report', requireAuth, async (c) => {
   const userId = getUserId(c);
@@ -30,24 +30,38 @@ report.post('/report', requireAuth, async (c) => {
 
   const { reported, reason } = parsed.data;
 
+  if (userId === reported) {
+    return c.json({ error: 'Cannot report yourself' }, 400);
+  }
+
+  const supabase = getSupabaseAdmin();
+
+  const { data: insertedReport, error: insertError } = await supabase
+    .from('reports')
+    .insert({ reporter: userId, reported, reason, status: 'open' })
+    .select('id')
+    .single();
+
+  if (insertError || !insertedReport) {
+    console.error('[report] Failed to insert report:', insertError?.message);
+    return c.json({ error: 'Failed to submit report' }, 500);
+  }
+
   await writeAudit({
     actor: userId,
     action: 'safety.report_submitted',
     target: reported,
-    payload: { reason_length: reason.length },
+    payload: { reason_length: reason.length, report_id: insertedReport.id },
   });
 
-  // TODO(M5): Insert into `reports` table and return the real row id.
-  return c.json({ id: 'stub' }, 200);
+  return c.json({ id: insertedReport.id as number }, 200);
 });
 
 /**
  * POST /block
  *
- * Blocks another user. Mutual-blocking prevents any future matching or contact.
- *
- * TODO(M5): Upsert into `blocks` table (blocker, blocked). Ensure the matching
- *   worker excludes blocked pairs. Return 204 on success.
+ * Blocks another user (upsert into `blocks`). The M4 matching safety gate
+ * already excludes blocked pairs in both directions from future matches.
  */
 report.post('/block', requireAuth, async (c) => {
   const userId = getUserId(c);
@@ -66,13 +80,30 @@ report.post('/block', requireAuth, async (c) => {
 
   const { blocked } = parsed.data;
 
+  if (userId === blocked) {
+    return c.json({ error: 'Cannot block yourself' }, 400);
+  }
+
+  const supabase = getSupabaseAdmin();
+
+  const { error: upsertError } = await supabase
+    .from('blocks')
+    .upsert(
+      { blocker: userId, blocked },
+      { onConflict: 'blocker,blocked', ignoreDuplicates: true },
+    );
+
+  if (upsertError) {
+    console.error('[block] Failed to upsert block:', upsertError.message);
+    return c.json({ error: 'Failed to apply block' }, 500);
+  }
+
   await writeAudit({
     actor: userId,
     action: 'safety.block_applied',
     target: blocked,
   });
 
-  // TODO(M5): Upsert into `blocks` table.
   return c.body(null, 204);
 });
 

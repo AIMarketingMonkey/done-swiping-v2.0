@@ -53,3 +53,6 @@ coverage/
 *.local
 tmp/
 .cache/
+
+# Claude Code agent worktrees / local state
+.claude/

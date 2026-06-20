@@ -6,6 +6,7 @@
 // (user_a or user_b) to update the status of their own match row.
 
 import { Screen } from '@/components/Screen';
+import { ReportBlockMenu } from '@/components/ReportBlockMenu';
 import { supabase } from '@/lib/supabase';
 import { getMatches } from '@/lib/api';
 import type { MatchItem } from '@done-swiping/shared';
@@ -132,6 +133,14 @@ export default function MatchesScreen(): React.JSX.Element {
   }
 
   // -------------------------------------------------------------------------
+  // Block — optimistic removal from the list
+  // -------------------------------------------------------------------------
+
+  function handleBlocked(matchId: number): void {
+    setMatches((prev) => prev.filter((m) => m.id !== matchId));
+  }
+
+  // -------------------------------------------------------------------------
   // Render helpers
   // -------------------------------------------------------------------------
 
@@ -176,6 +185,7 @@ export default function MatchesScreen(): React.JSX.Element {
             </Text>
           </View>
           {renderStatusBadge(match.status)}
+          <ReportBlockMenu userId={match.user} onBlocked={() => handleBlocked(match.id)} />
         </View>
 
         <View style={styles.rationaleBox}>

@@ -54,8 +54,12 @@ the repo-root `.env` so a single file serves all workspaces.
 | DELETE | `/memory/:id?kind=` | M3 | JWT | Delete item + purge user embeddings (GDPR) |
 | GET | `/memory/export` | M3 | JWT | GDPR Art. 20 data-portability bundle |
 | GET | `/matches` | M4 | JWT | Deterministic matching; recomputes and refreshes suggestions each call |
-| POST | `/report` | Stub | JWT | TODO(M5) |
-| POST | `/block` | Stub | JWT | TODO(M5) |
+| POST | `/report` | M5 | JWT | Submit a safety report against another user |
+| POST | `/block` | M5 | JWT | Block another user; idempotent (upsert) |
+| GET | `/admin/flags` | M5 | JWT + staff | List safety flags; `?status=open` (default) |
+| POST | `/admin/flags/:id` | M5 | JWT + staff | Update flag status; body: `moderationActionSchema` |
+| GET | `/admin/reports` | M5 | JWT + staff | List user reports; `?status=open` (default) |
+| POST | `/admin/reports/:id` | M5 | JWT + staff | Update report status; body: `moderationActionSchema` |
 
 ## Milestone M1 — Auth, Age-Gate & Consent
 
@@ -201,3 +205,67 @@ The service-role Supabase client is used for all queries. The authenticated
 `userId` is always sourced from the verified JWT (via `requireAuth` middleware),
 never from client-supplied request data. `p_user` passed to the RPC equals the
 JWT-verified user ID.
+
+## Milestone M5 — Safety & Moderation
+
+M5 implements the user-facing report/block endpoints and the staff-gated
+moderation console.
+
+### Migration required
+
+Before deploying M5, apply the new migration:
+
+```bash
+supabase migration up
+# or, for the hosted project:
+supabase db push
+```
+
+**Migration file:** `supabase/migrations/20260620120001_m5_staff.sql`
+
+Adds `profiles.is_staff boolean not null default false`. This column is set
+only via service-role or direct SQL — it can never be self-promoted through
+the API.
+
+### Report and block
+
+**POST /report**
+Authenticated users submit a safety report against another user.
+Body: `{ reported: uuid, reason: string (1–1000 chars) }`.
+Self-reporting (reporter === reported) is rejected with 400.
+Inserts a row into `reports` with `status='open'` and returns `{ id }`.
+Writes an `audit_log` entry (`action: 'safety.report_submitted'`).
+
+**POST /block**
+Authenticated users block another user. Idempotent — duplicate blocks are
+silently ignored (upsert with `ignoreDuplicates`).
+Body: `{ blocked: uuid }`. Self-blocking rejected with 400.
+Returns 204. Writes `audit_log` (`action: 'safety.block_applied'`).
+
+### Admin / moderation console (staff-gated)
+
+All `/admin/*` routes require a valid JWT (`requireAuth`) AND the authed
+user's `profiles.is_staff = true` (`requireStaff`). Non-staff requests
+receive `403 { error: 'staff_only' }`.
+
+`requireStaff` is implemented in `src/lib/staff.ts`. It uses the service-role
+client to read `profiles.is_staff` after `requireAuth` has set `c.var.userId`.
+
+**GET /admin/flags?status=open**
+Returns `safety_flags` rows ordered by `created_at` desc.
+Response validated against `safetyFlagsResponseSchema`.
+
+**POST /admin/flags/:id**
+Body: `moderationActionSchema` (`{ status: 'reviewing'|'actioned'|'dismissed', note? }`).
+Updates `status` and sets `reviewed_by` to the staff user's id.
+Returns 404 if the flag does not exist.
+Writes `audit_log` (`action: 'admin.flag.action'`).
+
+**GET /admin/reports?status=open**
+Returns `reports` rows ordered by `created_at` desc.
+Response validated against `reportsResponseSchema`.
+
+**POST /admin/reports/:id**
+Body: `moderationActionSchema`.
+Updates the report `status`. Returns 404 if not found.
+Writes `audit_log` (`action: 'admin.report.action'`).

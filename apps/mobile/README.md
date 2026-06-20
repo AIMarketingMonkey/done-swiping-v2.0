@@ -150,6 +150,33 @@ compatibility scores and acceptance rationale. It lets users act on each suggest
 - **Error state**: inline red banner with a "Try again" button; re-runs the fetch.
 - **My profile** button (top-right) navigates to `/memory` (preserved from M3).
 
+## M5 Safety: report / block
+
+The `ReportBlockMenu` component (`components/ReportBlockMenu.tsx`) surfaces a "⋯" overflow button on every match card that lets a user take safety actions against another user without leaving the Matches screen.
+
+### Trigger
+
+A small `⋯` `Pressable` appears in the top-right of each match card header, next to the status badge. It is always visible (including on actioned cards) so users can block or report even after accepting or declining.
+
+### Actions
+
+| Action | Flow |
+|---|---|
+| **Report** | Opens a reason text-input (up to 1 000 characters, validated). On submit calls `POST /report` with the other user's UUID + reason. Shows an in-sheet success message or an inline error. |
+| **Block** | Shows a native `Alert` confirm dialog. On confirm calls `POST /block`. On success the card is **optimistically removed** from the list (the server already excludes blocked users from future `GET /matches` responses). On API error an `Alert` is shown. |
+
+### Implementation
+
+- `components/ReportBlockMenu.tsx` is a self-contained functional component. It uses only RN primitives: `Modal` (bottom-sheet-style, `animationType="fade"`), `TextInput`, `Pressable`, `Alert`, `ActivityIndicator`.
+- No new dependencies introduced.
+- `lib/api.ts` already exports `report(input: ReportInput)` and `block(input: BlockInput)`, both validated against the shared Zod schemas (`reportInputSchema`, `blockInputSchema`) from `@done-swiping/shared`.
+
+### Screen → milestone map update
+
+| Screen | File | Milestone |
+|---|---|---|
+| Matches (report/block) | `app/matches/index.tsx`, `components/ReportBlockMenu.tsx` | M5 — **done** |
+
 ## Key architectural notes
 
 - **Compliance gating** is enforced in `app/index.tsx`. The flow is: auth → age assurance → consent → main app. None of these gates can be skipped.
