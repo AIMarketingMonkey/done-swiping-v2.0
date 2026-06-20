@@ -52,7 +52,22 @@ cd services/voice-agent && uv sync && uv run python agent.py dev
 
 ## Status
 
-🚧 **M0 — Foundations** (scaffold). See `docs/BUILD_PLAN.md` for what's next.
+**MVP scaffold complete — M0–M7 all built** (code-complete + static-verified:
+typecheck, lint, Prettier, ruff). M0/M1 are verified live against Supabase;
+M2–M7 await a live end-to-end test on a dev build with the voice/Stripe keys.
+See `docs/BUILD_PLAN.md` for the milestone detail, `docs/DECISIONS.md` for key
+decisions, and `docs/HARDENING.md` for the pre-public-beta checklist.
+
+| Milestone | What | State |
+| --- | --- | --- |
+| M0 | Monorepo, schema + RLS, shared, CI | ✅ verified |
+| M1 | Auth, age-gate, consent | ✅ verified (dev-mock gate) |
+| M2 | Voice loop (LiveKit/Deepgram/Claude/TTS A/B) | ✅ built |
+| M3 | Transcript, memory, extraction | ✅ built |
+| M4 | Deterministic matching | ✅ built |
+| M5 | Safety: report/block, queue, staff console | ✅ built |
+| M6 | Stripe payments + entitlement | ✅ built |
+| M7 | Hardening: Sentry, rate limit, logging | ✅ built |
 
 ## Compliance (non-negotiable)
 
