@@ -12,6 +12,7 @@ import memoryRoutes from './routes/memory.js';
 import matchesRoutes from './routes/matches.js';
 import reportRoutes from './routes/report.js';
 import adminRoutes from './routes/admin.js';
+import billingRoutes from './routes/billing.js';
 
 const app = new Hono();
 
@@ -58,6 +59,12 @@ app.route('/', reportRoutes);
 // Staff-gated moderation console
 app.route('/admin', adminRoutes);
 
+// Billing: Stripe checkout, portal, web→app return bridge, entitlement check.
+// NOTE: The webhook route (POST /webhooks/stripe) is mounted above and reads the
+// raw body BEFORE any JSON parsing — do not move it below a JSON body-parser.
+// These billing routes use requireAuth internally; /billing/return is public.
+app.route('/', billingRoutes);
+
 // --- 404 catch-all ----------------------------------------------------------
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 
@@ -92,6 +99,10 @@ serve({ fetch: app.fetch, port }, (info) => {
   console.log(`   POST /admin/flags/:id                 [staff only]`);
   console.log(`   GET  ${API_ROUTES.adminReports}       [staff only]`);
   console.log(`   POST /admin/reports/:id               [staff only]`);
+  console.log(`   POST ${API_ROUTES.billingCheckout}`);
+  console.log(`   POST ${API_ROUTES.billingPortal}`);
+  console.log(`   GET  /billing/return                  [public, web→app bridge]`);
+  console.log(`   GET  ${API_ROUTES.entitlement}`);
 });
 
 export default app;

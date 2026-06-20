@@ -1,5 +1,7 @@
+import type Stripe from 'stripe';
 import { Hono } from 'hono';
 import { writeAudit } from '../lib/audit.js';
+import { getSupabaseAdmin } from '../lib/supabase-admin.js';
 import { env } from '../env.js';
 
 const stripeWebhook = new Hono();
@@ -52,35 +54,96 @@ stripeWebhook.post('/', async (c) => {
   // --- Event dispatch -------------------------------------------------------
   switch (event.type) {
     case 'checkout.session.completed': {
-      // TODO(M6): Extract customer/subscription ids, upsert into `subscriptions`.
-      console.log('[stripe-webhook] checkout.session.completed — stub, not yet implemented.');
+      const session = event.data.object as Stripe.Checkout.Session;
+      // Attempt to resolve user_id from the session's client_reference_id or
+      // subscription metadata. customer_id is always available here.
+      const userId =
+        session.client_reference_id ??
+        (await resolveUserIdByCustomer(session.customer as string | null));
+
+      if (userId && session.subscription) {
+        // Fetch the subscription to get the full status + period end.
+        const subscriptionId =
+          typeof session.subscription === 'string' ? session.subscription : session.subscription.id;
+
+        const stripeSub = await stripe.subscriptions.retrieve(subscriptionId);
+        await upsertSubscription({
+          userId,
+          stripeCustomerId: session.customer as string,
+          stripeSub,
+        });
+      }
+
       await writeAudit({
         actor: 'system:stripe',
-        action: 'stripe.checkout_session_completed',
-        payload: { event_id: event.id },
+        action: 'billing.webhook',
+        payload: {
+          event_id: event.id,
+          event_type: event.type,
+          user_id: userId ?? null,
+          customer_id: session.customer ?? null,
+        },
       });
       break;
     }
 
     case 'customer.subscription.created':
     case 'customer.subscription.updated': {
-      // TODO(M6): Upsert tier + status into `subscriptions` from event.data.object.
-      console.log(`[stripe-webhook] ${event.type} — stub, not yet implemented.`);
+      const stripeSub = event.data.object as Stripe.Subscription;
+      const userId =
+        (stripeSub.metadata?.user_id as string | undefined) ??
+        (await resolveUserIdByCustomer(
+          typeof stripeSub.customer === 'string' ? stripeSub.customer : stripeSub.customer.id,
+        ));
+
+      if (userId) {
+        await upsertSubscription({
+          userId,
+          stripeCustomerId:
+            typeof stripeSub.customer === 'string' ? stripeSub.customer : stripeSub.customer.id,
+          stripeSub,
+        });
+      }
+
       await writeAudit({
         actor: 'system:stripe',
-        action: `stripe.${event.type.replace(/\./g, '_')}`,
-        payload: { event_id: event.id },
+        action: 'billing.webhook',
+        payload: {
+          event_id: event.id,
+          event_type: event.type,
+          user_id: userId ?? null,
+          subscription_id: stripeSub.id,
+        },
       });
       break;
     }
 
     case 'customer.subscription.deleted': {
-      // TODO(M6): Mark subscription as canceled in `subscriptions`.
-      console.log('[stripe-webhook] customer.subscription.deleted — stub, not yet implemented.');
+      const stripeSub = event.data.object as Stripe.Subscription;
+      const userId =
+        (stripeSub.metadata?.user_id as string | undefined) ??
+        (await resolveUserIdByCustomer(
+          typeof stripeSub.customer === 'string' ? stripeSub.customer : stripeSub.customer.id,
+        ));
+
+      if (userId) {
+        await upsertSubscription({
+          userId,
+          stripeCustomerId:
+            typeof stripeSub.customer === 'string' ? stripeSub.customer : stripeSub.customer.id,
+          stripeSub,
+        });
+      }
+
       await writeAudit({
         actor: 'system:stripe',
-        action: 'stripe.subscription_deleted',
-        payload: { event_id: event.id },
+        action: 'billing.webhook',
+        payload: {
+          event_id: event.id,
+          event_type: event.type,
+          user_id: userId ?? null,
+          subscription_id: stripeSub.id,
+        },
       });
       break;
     }
@@ -92,5 +155,60 @@ stripeWebhook.post('/', async (c) => {
 
   return c.json({ received: true }, 200);
 });
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a user_id by looking up the stripe_customer_id in the subscriptions
+ * table. Returns undefined when no matching row exists.
+ */
+async function resolveUserIdByCustomer(customerId: string | null): Promise<string | undefined> {
+  if (!customerId) return undefined;
+  const { data } = await getSupabaseAdmin()
+    .from('subscriptions')
+    .select('user_id')
+    .eq('stripe_customer_id', customerId)
+    .maybeSingle();
+  return data?.user_id ?? undefined;
+}
+
+/**
+ * Upsert the `subscriptions` row from a Stripe Subscription object.
+ * tier is 'premium' when active or trialing, else 'free'.
+ */
+async function upsertSubscription({
+  userId,
+  stripeCustomerId,
+  stripeSub,
+}: {
+  userId: string;
+  stripeCustomerId: string;
+  stripeSub: Stripe.Subscription;
+}): Promise<void> {
+  const status = stripeSub.status;
+  const tier = status === 'active' || status === 'trialing' ? 'premium' : 'free';
+  const currentPeriodEnd =
+    typeof stripeSub.current_period_end === 'number'
+      ? new Date(stripeSub.current_period_end * 1000).toISOString()
+      : null;
+
+  const { error } = await getSupabaseAdmin().from('subscriptions').upsert(
+    {
+      user_id: userId,
+      stripe_customer_id: stripeCustomerId,
+      stripe_subscription_id: stripeSub.id,
+      tier,
+      status,
+      current_period_end: currentPeriodEnd,
+    },
+    { onConflict: 'user_id' },
+  );
+
+  if (error) {
+    console.error('[stripe-webhook] Failed to upsert subscription:', error.message);
+  }
+}
 
 export default stripeWebhook;

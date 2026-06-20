@@ -49,6 +49,8 @@ const envSchema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_PUBLISHABLE_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  /** Stripe Price ID for the premium subscription (e.g. price_xxx). */
+  STRIPE_PRICE_PREMIUM: z.string().optional(),
 
   // Observability / comms
   SENTRY_DSN: z.string().optional(),
@@ -58,6 +60,8 @@ const envSchema = z.object({
   APP_REGION: z.string().optional(),
   API_PORT: z.coerce.number().default(8787),
   API_PUBLIC_URL: z.string().optional(),
+  /** Deep-link scheme used to redirect back into the mobile app after Stripe checkout. */
+  APP_DEEP_LINK: z.string().default('doneswiping://'),
 });
 
 const parsed = envSchema.safeParse(process.env);

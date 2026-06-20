@@ -35,7 +35,11 @@ the repo-root `.env` so a single file serves all workspaces.
 | `IDV_PEM` | M1 (prod) | Yoti partner private key (PEM string or file path) |
 | `IDV_DEV_MODE` | No | Set `true`/`1` to enable dev-mock IDV path (never in prod) |
 | `STRIPE_SECRET_KEY` | M6 | Payments |
+| `STRIPE_PUBLISHABLE_KEY` | M6 | Sent to the client (safe) |
 | `STRIPE_WEBHOOK_SECRET` | M6 | Webhook signature |
+| `STRIPE_PRICE_PREMIUM` | M6 | Stripe Price ID for the premium plan (e.g. `price_xxx`) |
+| `API_PUBLIC_URL` | M6 | Public HTTPS base URL of this service — used as Stripe return URL |
+| `APP_DEEP_LINK` | No | Deep-link scheme for the mobile app (default `doneswiping://`) |
 | `API_PORT` | No | Defaults to 8787 |
 
 ## Route table
@@ -43,12 +47,16 @@ the repo-root `.env` so a single file serves all workspaces.
 | Method | Path | Status | Auth | Notes |
 |---|---|---|---|---|
 | GET | `/health` | M0 | No | Liveness probe |
-| POST | `/session/start` | M1 | JWT | Age-gate enforced; issues LiveKit token; entitlement TODO(M6) |
+| POST | `/session/start` | M6 | JWT | Age-gate + entitlement gate; issues LiveKit token (402 if free tier exhausted) |
 | POST | `/idv/session` | M1 | JWT | Creates Yoti IDV session; returns SDK token (or dev-mock URL) |
 | POST | `/idv/dev/complete` | M1 — **dev only** | JWT | Simulates IDV result; **only mounted when `IDV_DEV_MODE=true`** |
 | POST | `/consent` | M1 | JWT | Records consent choices; upserts into `consents` table |
 | POST | `/webhooks/idv` | M1 | HMAC-SHA256 sig | Receives Yoti outcome; updates `profiles.age_assurance_status` |
-| POST | `/webhooks/stripe` | Stub | Stripe sig | TODO(M6) subscription upsert |
+| POST | `/webhooks/stripe` | M6 | Stripe sig | Upserts `subscriptions` on checkout/sub events |
+| POST | `/billing/checkout` | M6 | JWT | Create Stripe Checkout Session; returns `{ url }` |
+| GET  | `/billing/return` | M6 | No | Web→app bridge: redirects to `APP_DEEP_LINK/paywall?status=` |
+| POST | `/billing/portal` | M6 | JWT | Create Stripe Billing Portal session; returns `{ url }` |
+| GET  | `/me/entitlement` | M6 | JWT | Returns `{ premium, tier, status, current_period_end }` |
 | GET | `/memory` | M3 | JWT | Returns stated facts, inferred traits, preferences |
 | PUT | `/memory/:id` | M3 | JWT | Update a memory item; body must include `kind` |
 | DELETE | `/memory/:id?kind=` | M3 | JWT | Delete item + purge user embeddings (GDPR) |
@@ -269,3 +277,70 @@ Response validated against `reportsResponseSchema`.
 Body: `moderationActionSchema`.
 Updates the report `status`. Returns 404 if not found.
 Writes `audit_log` (`action: 'admin.report.action'`).
+
+## Milestone M6 — Payments (Stripe)
+
+M6 adds Stripe-powered subscription billing with a free-tier session cap and a
+web→app return bridge (Stripe requires HTTPS success/cancel URLs).
+
+### Stripe setup (one-time, in the Stripe dashboard)
+
+1. Create a **Product** (e.g. "Done Swiping Premium") and a recurring **Price**
+   (monthly or annual). Copy the `price_xxx` ID into `STRIPE_PRICE_PREMIUM`.
+2. Create a **Webhook endpoint** pointing at `https://<your-domain>/webhooks/stripe`.
+   Subscribe to: `checkout.session.completed`, `customer.subscription.created`,
+   `customer.subscription.updated`, `customer.subscription.deleted`.
+   Copy the signing secret into `STRIPE_WEBHOOK_SECRET`.
+3. Enable the **Customer Portal** in Stripe Dashboard → Billing → Customer Portal.
+   Configure the features you want to expose (cancel, update payment method, etc.).
+
+### Checkout → webhook → entitlement flow
+
+```
+Mobile app
+  └─ POST /billing/checkout (JWT)
+       └─ Ensure Stripe Customer (reuse or create, persist stripe_customer_id)
+       └─ Create Checkout Session (mode: subscription, price, customer, metadata.user_id)
+       └─ Return { url }
+App opens url in in-app browser
+  └─ User completes payment on Stripe-hosted page
+       └─ Stripe redirects to /billing/return?status=success
+            └─ HTML page redirects to doneswiping://paywall?status=success
+Stripe fires webhook → POST /webhooks/stripe
+  └─ Signature verified (constructEvent)
+  └─ checkout.session.completed → retrieve subscription → upsert subscriptions row
+  └─ customer.subscription.* → upsert tier/status/current_period_end
+Mobile app polls GET /me/entitlement
+  └─ premium=true once subscription is active/trialing
+```
+
+### Free-tier gate
+
+`POST /session/start` counts the user's rows in `conversations`. If
+`count >= FREE_VOICE_SESSION_LIMIT` (currently 3) and the user is not premium
+(`subscriptions.status` not in `active|trialing`), the endpoint returns
+**402 `{ error: 'premium_required' }`**. The mobile app should direct the user
+to the paywall screen.
+
+### Web→app return bridge (`GET /billing/return`)
+
+Stripe requires HTTPS `success_url` and `cancel_url`. The bridge page is a tiny
+HTML file that uses `<meta http-equiv="refresh">` to redirect immediately to
+`APP_DEEP_LINK/paywall?status=<status>` and provides a tap-here fallback link.
+`status` is sanitised to `success | cancel | portal | unknown` to prevent
+open-redirect abuse.
+
+### Billing Portal
+
+`POST /billing/portal` (JWT) creates a Stripe-hosted portal session for the
+user's existing `stripe_customer_id` (404 if none). The portal `return_url`
+goes back through `/billing/return?status=portal` so the app can handle it
+uniformly.
+
+### Audit log actions
+
+| Action | Trigger |
+|---|---|
+| `billing.checkout` | Checkout Session created |
+| `billing.portal` | Portal session created |
+| `billing.webhook` | Any handled Stripe webhook event |

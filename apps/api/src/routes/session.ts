@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { AccessToken } from 'livekit-server-sdk';
-import { sessionStartResponseSchema } from '@done-swiping/shared';
+import { FREE_VOICE_SESSION_LIMIT, sessionStartResponseSchema } from '@done-swiping/shared';
 import { requireAuth, getUserId } from '../lib/auth.js';
 import { writeAudit } from '../lib/audit.js';
 import { getSupabaseAdmin } from '../lib/supabase-admin.js';
@@ -42,7 +42,36 @@ session.post('/start', requireAuth, async (c) => {
   }
   // --------------------------------------------------------------------------
 
-  // TODO(M6): Check `subscriptions` table for entitlement before issuing token.
+  // --- Entitlement gate (M6) ------------------------------------------------
+  // Premium users get unlimited voice sessions; free-tier users are capped at
+  // FREE_VOICE_SESSION_LIMIT. We count all conversations for the user.
+  const { data: sub } = await supabase
+    .from('subscriptions')
+    .select('status')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  const isPremium = sub?.status === 'active' || sub?.status === 'trialing';
+
+  if (!isPremium) {
+    const { count, error: countError } = await supabase
+      .from('conversations')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId);
+
+    if (countError) {
+      console.error(
+        '[session] Failed to count conversations for entitlement gate:',
+        countError.message,
+      );
+      return c.json({ error: 'Could not verify entitlement' }, 500);
+    }
+
+    if ((count ?? 0) >= FREE_VOICE_SESSION_LIMIT) {
+      return c.json({ error: 'premium_required' }, 402);
+    }
+  }
+  // --------------------------------------------------------------------------
 
   // Guard: LiveKit config must be present to serve this endpoint.
   if (!env.LIVEKIT_URL || !env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
