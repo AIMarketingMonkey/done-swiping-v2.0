@@ -10,6 +10,7 @@ import {
   INFERRED_TRAIT_STATUS,
   MATCH_STATUS,
   PREFERENCE_TYPE,
+  SAFETY_FLAG_STATUS,
   SAFETY_FLAG_TYPE,
 } from './constants.js';
 
@@ -118,6 +119,38 @@ export const blockInputSchema = z.object({
   blocked: z.string().uuid(),
 });
 export type BlockInput = z.infer<typeof blockInputSchema>;
+
+// --- Moderation / admin console (staff-gated) --------------------------------
+export const safetyFlagItemSchema = z.object({
+  id: z.number(),
+  user_id: z.string().nullable(),
+  conversation_id: z.number().nullable(),
+  type: z.string().nullable(),
+  severity: z.string().nullable(),
+  status: z.enum(SAFETY_FLAG_STATUS),
+  reviewed_by: z.string().nullable(),
+  created_at: z.string(),
+});
+export const safetyFlagsResponseSchema = z.object({ flags: z.array(safetyFlagItemSchema) });
+export type SafetyFlagItem = z.infer<typeof safetyFlagItemSchema>;
+
+export const reportItemSchema = z.object({
+  id: z.number(),
+  reporter: z.string(),
+  reported: z.string(),
+  reason: z.string().nullable(),
+  status: z.string(),
+  created_at: z.string(),
+});
+export const reportsResponseSchema = z.object({ reports: z.array(reportItemSchema) });
+export type ReportItem = z.infer<typeof reportItemSchema>;
+
+// Staff action on a flag/report. Cannot re-open ('open' is the initial state).
+export const moderationActionSchema = z.object({
+  status: z.enum(['reviewing', 'actioned', 'dismissed']),
+  note: z.string().max(1000).optional(),
+});
+export type ModerationAction = z.infer<typeof moderationActionSchema>;
 
 // --- Extraction worker output (strict JSON; never emits hard filters) --------
 export const extractionResultSchema = z.object({

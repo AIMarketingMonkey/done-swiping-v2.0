@@ -86,4 +86,9 @@ export const API_ROUTES = {
   matches: '/matches',
   report: '/report',
   block: '/block',
+  // Staff-gated moderation console
+  adminFlags: '/admin/flags',
+  adminFlagAction: (id: string | number) => `/admin/flags/${id}`,
+  adminReports: '/admin/reports',
+  adminReportAction: (id: string | number) => `/admin/reports/${id}`,
 } as const;
