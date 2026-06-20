@@ -426,7 +426,11 @@ async def run_extraction(conversation_id: int) -> None:
     TODO(M3): wrap in a proper task-queue job with retry and dead-letter handling.
     """
     from lib.config import get_settings
+    from lib.sentry import capture_exception, init_sentry
     from lib.supabase_client import get_supabase
+
+    # Initialise Sentry if not already done (worker may run standalone via CLI).
+    init_sentry()
 
     settings = get_settings()
     db = get_supabase()
@@ -493,6 +497,11 @@ async def run_extraction(conversation_id: int) -> None:
     except ExtractionError as exc:
         logger.error(
             "Extraction LLM call failed for conversation %d: %s", conversation_id, exc
+        )
+        # Report to Sentry with structural metadata only — never transcript content.
+        capture_exception(
+            exc,
+            tags={"component": "extraction", "conversation_id": str(conversation_id)},
         )
         return
 

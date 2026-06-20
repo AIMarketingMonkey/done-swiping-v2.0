@@ -2,6 +2,7 @@ import type Stripe from 'stripe';
 import { Hono } from 'hono';
 import { writeAudit } from '../lib/audit.js';
 import { getSupabaseAdmin } from '../lib/supabase-admin.js';
+import { track } from '../lib/analytics.js';
 import { env } from '../env.js';
 
 const stripeWebhook = new Hono();
@@ -102,6 +103,14 @@ stripeWebhook.post('/', async (c) => {
           stripeCustomerId:
             typeof stripeSub.customer === 'string' ? stripeSub.customer : stripeSub.customer.id,
           stripeSub,
+        });
+      }
+
+      // Track subscription activation (no PII — status and tier only).
+      if (stripeSub.status === 'active' || stripeSub.status === 'trialing') {
+        track('subscription.activated', userId, {
+          status: stripeSub.status,
+          eventType: event.type,
         });
       }
 

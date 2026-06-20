@@ -56,6 +56,7 @@ from livekit.plugins import elevenlabs as lk_elevenlabs
 
 from lib.config import get_settings
 from lib.safety import classify_turn, persist_flag
+from lib.sentry import capture_exception, init_sentry
 from lib.supabase_client import (
     close_conversation,
     insert_conversation,
@@ -470,6 +471,7 @@ async def entrypoint(ctx: JobContext) -> None:
             await close_conversation(conversation_id)
         except Exception as exc:
             logger.error("Failed to close conversation %d: %s", conversation_id, exc)
+            capture_exception(exc, tags={"component": "session", "event": "close_conversation"})
 
         # Trigger extraction worker.
         await _trigger_extraction(conversation_id)
@@ -494,6 +496,10 @@ def main() -> None:
         uv run python agent.py dev    # local dev with hot-reload
         uv run python agent.py start  # production worker
     """
+    # Initialise Sentry early (no-op when SENTRY_DSN is unset or sentry-sdk absent).
+    # Must be called before any async code runs so the SDK can install its integrations.
+    init_sentry()
+
     # Eagerly validate config at startup so missing keys fail immediately.
     get_settings()
     cli.run_app(

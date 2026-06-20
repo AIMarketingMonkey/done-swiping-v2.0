@@ -18,6 +18,7 @@ dependencies = [
     "supabase>=2.9",
     "python-dotenv>=1.0",
     "openai>=1.0",  # embeddings (default provider); swap/remove if using Voyage/Gemini
+    "sentry-sdk>=2.0",  # error reporting — initialised only when SENTRY_DSN is set
 ]
 
 [project.scripts]

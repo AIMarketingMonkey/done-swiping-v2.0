@@ -4,6 +4,8 @@ import { FREE_VOICE_SESSION_LIMIT, sessionStartResponseSchema } from '@done-swip
 import { requireAuth, getUserId } from '../lib/auth.js';
 import { writeAudit } from '../lib/audit.js';
 import { getSupabaseAdmin } from '../lib/supabase-admin.js';
+import { rateLimit } from '../lib/rate-limit.js';
+import { track } from '../lib/analytics.js';
 import { env } from '../env.js';
 
 const session = new Hono();
@@ -18,7 +20,7 @@ const session = new Hono();
  * TODO(M2): Generate a stable room id per-conversation rather than always
  *            using the onboarding room; store conversation record in DB.
  */
-session.post('/start', requireAuth, async (c) => {
+session.post('/start', rateLimit({ windowMs: 60_000, max: 30 }), requireAuth, async (c) => {
   const userId = getUserId(c);
 
   // --- Age-gate (M1) --------------------------------------------------------
@@ -107,6 +109,8 @@ session.post('/start', requireAuth, async (c) => {
     target: userId,
     payload: { room },
   });
+
+  track('session.start', userId, { room, isPremium });
 
   return c.json(responseBody, 200);
 });

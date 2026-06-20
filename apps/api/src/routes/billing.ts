@@ -8,6 +8,8 @@ import {
 import { requireAuth, getUserId } from '../lib/auth.js';
 import { writeAudit } from '../lib/audit.js';
 import { getSupabaseAdmin } from '../lib/supabase-admin.js';
+import { rateLimit } from '../lib/rate-limit.js';
+import { track } from '../lib/analytics.js';
 import { env } from '../env.js';
 
 const billing = new Hono();
@@ -16,70 +18,77 @@ const billing = new Hono();
 // POST /billing/checkout
 // Ensure a Stripe Customer exists for the user, then create a Checkout Session.
 // ---------------------------------------------------------------------------
-billing.post(API_ROUTES.billingCheckout, requireAuth, async (c) => {
-  if (!env.STRIPE_SECRET_KEY || !env.STRIPE_PRICE_PREMIUM) {
-    return c.json(
-      {
-        error: 'Stripe or the premium price is not configured on this server.',
-        hint: 'Set STRIPE_SECRET_KEY and STRIPE_PRICE_PREMIUM in your .env file.',
-      },
-      501,
-    );
-  }
+billing.post(
+  API_ROUTES.billingCheckout,
+  rateLimit({ windowMs: 60_000, max: 30 }),
+  requireAuth,
+  async (c) => {
+    if (!env.STRIPE_SECRET_KEY || !env.STRIPE_PRICE_PREMIUM) {
+      return c.json(
+        {
+          error: 'Stripe or the premium price is not configured on this server.',
+          hint: 'Set STRIPE_SECRET_KEY and STRIPE_PRICE_PREMIUM in your .env file.',
+        },
+        501,
+      );
+    }
 
-  const userId = getUserId(c);
-  const supabase = getSupabaseAdmin();
-  const { getStripeClient } = await import('../lib/stripe.js');
-  const stripe = getStripeClient();
+    const userId = getUserId(c);
+    const supabase = getSupabaseAdmin();
+    const { getStripeClient } = await import('../lib/stripe.js');
+    const stripe = getStripeClient();
 
-  // --- Resolve or create a Stripe Customer for this user --------------------
-  const { data: sub } = await supabase
-    .from('subscriptions')
-    .select('stripe_customer_id')
-    .eq('user_id', userId)
-    .maybeSingle();
-
-  let customerId: string;
-
-  if (sub?.stripe_customer_id) {
-    customerId = sub.stripe_customer_id;
-  } else {
-    // Fetch the user's email so Stripe can pre-fill the checkout form.
-    const { data: userData } = await supabase.auth.admin.getUserById(userId);
-    const customer = await stripe.customers.create({
-      email: userData?.user?.email ?? undefined,
-      metadata: { user_id: userId },
-    });
-    customerId = customer.id;
-
-    // Persist the new customer id (upsert — the row may not exist yet).
-    await supabase
+    // --- Resolve or create a Stripe Customer for this user --------------------
+    const { data: sub } = await supabase
       .from('subscriptions')
-      .upsert({ user_id: userId, stripe_customer_id: customerId }, { onConflict: 'user_id' });
-  }
+      .select('stripe_customer_id')
+      .eq('user_id', userId)
+      .maybeSingle();
 
-  // --- Create the Checkout Session ------------------------------------------
-  const publicUrl = env.API_PUBLIC_URL ?? '';
-  const session = await stripe.checkout.sessions.create({
-    mode: 'subscription',
-    customer: customerId,
-    client_reference_id: userId,
-    line_items: [{ price: env.STRIPE_PRICE_PREMIUM, quantity: 1 }],
-    subscription_data: { metadata: { user_id: userId } },
-    success_url: `${publicUrl}/billing/return?status=success`,
-    cancel_url: `${publicUrl}/billing/return?status=cancel`,
-  });
+    let customerId: string;
 
-  await writeAudit({
-    actor: userId,
-    action: 'billing.checkout',
-    target: userId,
-    payload: { checkout_session_id: session.id, customer_id: customerId },
-  });
+    if (sub?.stripe_customer_id) {
+      customerId = sub.stripe_customer_id;
+    } else {
+      // Fetch the user's email so Stripe can pre-fill the checkout form.
+      const { data: userData } = await supabase.auth.admin.getUserById(userId);
+      const customer = await stripe.customers.create({
+        email: userData?.user?.email ?? undefined,
+        metadata: { user_id: userId },
+      });
+      customerId = customer.id;
 
-  const body = checkoutResponseSchema.parse({ url: session.url });
-  return c.json(body, 200);
-});
+      // Persist the new customer id (upsert — the row may not exist yet).
+      await supabase
+        .from('subscriptions')
+        .upsert({ user_id: userId, stripe_customer_id: customerId }, { onConflict: 'user_id' });
+    }
+
+    // --- Create the Checkout Session ------------------------------------------
+    const publicUrl = env.API_PUBLIC_URL ?? '';
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer: customerId,
+      client_reference_id: userId,
+      line_items: [{ price: env.STRIPE_PRICE_PREMIUM, quantity: 1 }],
+      subscription_data: { metadata: { user_id: userId } },
+      success_url: `${publicUrl}/billing/return?status=success`,
+      cancel_url: `${publicUrl}/billing/return?status=cancel`,
+    });
+
+    await writeAudit({
+      actor: userId,
+      action: 'billing.checkout',
+      target: userId,
+      payload: { checkout_session_id: session.id, customer_id: customerId },
+    });
+
+    track('checkout.started', userId, { checkoutSessionId: session.id });
+
+    const body = checkoutResponseSchema.parse({ url: session.url });
+    return c.json(body, 200);
+  },
+);
 
 // ---------------------------------------------------------------------------
 // GET /billing/return

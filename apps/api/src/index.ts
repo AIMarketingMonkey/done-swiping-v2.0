@@ -2,6 +2,8 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { API_ROUTES } from '@done-swiping/shared';
 import { env } from './env.js';
+import { initSentry, captureError } from './lib/observability.js';
+import { requestLogger, logger } from './lib/logger.js';
 import sessionRoutes from './routes/session.js';
 import idvWebhookRoutes from './routes/idv-webhook.js';
 import idvSessionRoutes from './routes/idv-session.js';
@@ -14,7 +16,15 @@ import reportRoutes from './routes/report.js';
 import adminRoutes from './routes/admin.js';
 import billingRoutes from './routes/billing.js';
 
+// Initialise Sentry as early as possible (no-op when SENTRY_DSN is unset).
+initSentry();
+
 const app = new Hono();
+
+// --- Request logging (must be first middleware) ---------------------------
+// Logs method, matched-path pattern, status, duration, requestId.
+// Does NOT log raw URLs or query strings — avoids leaking tokens.
+app.use('*', requestLogger);
 
 // --- Health check -----------------------------------------------------------
 app.get('/health', (c) =>
@@ -35,7 +45,7 @@ app.route(API_ROUTES.idvSession, idvSessionRoutes);
 // IDV — dev-mock complete endpoint.
 // WARNING: Only mounted when IDV_DEV_MODE=true.  Must never be active in production.
 if (env.IDV_DEV_MODE) {
-  console.warn(
+  logger.warn(
     '[api] IDV_DEV_MODE=true — mounting /idv/dev/complete (dev-mock path). ' +
       'This MUST NOT be enabled in production.',
   );
@@ -45,7 +55,12 @@ if (env.IDV_DEV_MODE) {
 // Consent recording (authenticated)
 app.route(API_ROUTES.consent, consentRoutes);
 
-// Webhooks — public endpoints, signature-verified inside the handler
+// Webhooks — public endpoints, signature-verified inside the handler.
+// NOTE: Stripe and IDV webhooks read the raw body for signature verification.
+//       They are mounted BEFORE any JSON body-parser so the raw bytes are intact.
+//       Rate limiting is intentionally NOT applied to /webhooks/* — third-party
+//       retry logic requires unrestricted access; signature verification is the
+//       defence here.
 app.route(API_ROUTES.idvWebhook, idvWebhookRoutes);
 app.route(API_ROUTES.stripeWebhook, stripeWebhookRoutes);
 
@@ -69,8 +84,17 @@ app.route('/', billingRoutes);
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 
 // --- Global error handler ---------------------------------------------------
+// Captures the exception in Sentry (when configured) without leaking internals.
 app.onError((err, c) => {
-  console.error('[api] Unhandled error:', err);
+  logger.error('Unhandled error', {
+    errMessage: err instanceof Error ? err.message : String(err),
+    route: c.req.routePath ?? c.req.path,
+    method: c.req.method,
+  });
+  captureError(err, {
+    route: c.req.routePath ?? c.req.path,
+    method: c.req.method,
+  });
   return c.json({ error: 'Internal server error' }, 500);
 });
 
@@ -78,31 +102,33 @@ app.onError((err, c) => {
 const port = env.API_PORT;
 
 serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`@done-swiping/api listening on http://localhost:${info.port}`);
-  console.log('   GET  /health');
-  console.log(`   POST ${API_ROUTES.sessionStart}`);
-  console.log(`   POST ${API_ROUTES.idvSession}`);
-  if (env.IDV_DEV_MODE) {
-    console.log('   POST /idv/dev/complete          [DEV ONLY]');
-  }
-  console.log(`   POST ${API_ROUTES.consent}`);
-  console.log(`   POST ${API_ROUTES.idvWebhook}`);
-  console.log(`   POST ${API_ROUTES.stripeWebhook}`);
-  console.log(`   GET  ${API_ROUTES.memory}`);
-  console.log(`   PUT  /memory/:id`);
-  console.log(`   DELETE /memory/:id`);
-  console.log(`   GET  ${API_ROUTES.memoryExport}`);
-  console.log(`   GET  ${API_ROUTES.matches}`);
-  console.log(`   POST ${API_ROUTES.report}`);
-  console.log(`   POST ${API_ROUTES.block}`);
-  console.log(`   GET  ${API_ROUTES.adminFlags}         [staff only]`);
-  console.log(`   POST /admin/flags/:id                 [staff only]`);
-  console.log(`   GET  ${API_ROUTES.adminReports}       [staff only]`);
-  console.log(`   POST /admin/reports/:id               [staff only]`);
-  console.log(`   POST ${API_ROUTES.billingCheckout}`);
-  console.log(`   POST ${API_ROUTES.billingPortal}`);
-  console.log(`   GET  /billing/return                  [public, web→app bridge]`);
-  console.log(`   GET  ${API_ROUTES.entitlement}`);
+  logger.info(`@done-swiping/api listening`, { port: info.port });
+  logger.info('Routes mounted', {
+    routes: [
+      'GET  /health',
+      `POST ${API_ROUTES.sessionStart}`,
+      `POST ${API_ROUTES.idvSession}`,
+      ...(env.IDV_DEV_MODE ? ['POST /idv/dev/complete  [DEV ONLY]'] : []),
+      `POST ${API_ROUTES.consent}`,
+      `POST ${API_ROUTES.idvWebhook}`,
+      `POST ${API_ROUTES.stripeWebhook}`,
+      `GET  ${API_ROUTES.memory}`,
+      'PUT  /memory/:id',
+      'DELETE /memory/:id',
+      `GET  ${API_ROUTES.memoryExport}`,
+      `GET  ${API_ROUTES.matches}`,
+      `POST ${API_ROUTES.report}`,
+      `POST ${API_ROUTES.block}`,
+      `GET  ${API_ROUTES.adminFlags}         [staff only]`,
+      'POST /admin/flags/:id                 [staff only]',
+      `GET  ${API_ROUTES.adminReports}       [staff only]`,
+      'POST /admin/reports/:id               [staff only]',
+      `POST ${API_ROUTES.billingCheckout}`,
+      `POST ${API_ROUTES.billingPortal}`,
+      'GET  /billing/return                  [public, web→app bridge]',
+      `GET  ${API_ROUTES.entitlement}`,
+    ],
+  });
 });
 
 export default app;

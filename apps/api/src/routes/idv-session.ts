@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { idvSessionResponseSchema } from '@done-swiping/shared';
 import { requireAuth, getUserId } from '../lib/auth.js';
 import { writeAudit } from '../lib/audit.js';
+import { rateLimit } from '../lib/rate-limit.js';
 import { env } from '../env.js';
 
 const idvSession = new Hono();
@@ -61,7 +62,7 @@ async function createYotiSession(
  * synthetic session is returned immediately and a companion GET endpoint lets
  * testers simulate a pass/fail result.
  */
-idvSession.post('/', requireAuth, async (c) => {
+idvSession.post('/', rateLimit({ windowMs: 60_000, max: 30 }), requireAuth, async (c) => {
   const userId = getUserId(c);
 
   let responseBody: ReturnType<typeof idvSessionResponseSchema.parse>;

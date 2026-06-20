@@ -3,6 +3,7 @@ import { reportInputSchema, blockInputSchema } from '@done-swiping/shared';
 import { requireAuth, getUserId } from '../lib/auth.js';
 import { getSupabaseAdmin } from '../lib/supabase-admin.js';
 import { writeAudit } from '../lib/audit.js';
+import { rateLimit } from '../lib/rate-limit.js';
 
 const report = new Hono();
 
@@ -13,7 +14,7 @@ const report = new Hono();
  * (status 'open') for the moderation queue.
  * TODO(M7): notify moderators on submit / auto-action critical-severity reports.
  */
-report.post('/report', requireAuth, async (c) => {
+report.post('/report', rateLimit({ windowMs: 60_000, max: 30 }), requireAuth, async (c) => {
   const userId = getUserId(c);
 
   let rawBody: unknown;
@@ -63,7 +64,7 @@ report.post('/report', requireAuth, async (c) => {
  * Blocks another user (upsert into `blocks`). The M4 matching safety gate
  * already excludes blocked pairs in both directions from future matches.
  */
-report.post('/block', requireAuth, async (c) => {
+report.post('/block', rateLimit({ windowMs: 60_000, max: 30 }), requireAuth, async (c) => {
   const userId = getUserId(c);
 
   let rawBody: unknown;

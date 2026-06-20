@@ -3,6 +3,7 @@ import { matchesResponseSchema } from '@done-swiping/shared';
 import { requireAuth, getUserId } from '../lib/auth.js';
 import { getSupabaseAdmin } from '../lib/supabase-admin.js';
 import { writeAudit } from '../lib/audit.js';
+import { track } from '../lib/analytics.js';
 
 // =============================================================================
 // GET /matches — M4 deterministic matching
@@ -327,6 +328,11 @@ matches.get('/', requireAuth, async (c) => {
       candidates_found: candidateRows.length,
       matches_stored: (insertedRows ?? []).length,
     },
+  });
+
+  track('match.computed', userId, {
+    candidatesFound: candidateRows.length,
+    matchesStored: (insertedRows ?? []).length,
   });
 
   // ------------------------------------------------------------------

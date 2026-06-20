@@ -278,6 +278,101 @@ Body: `moderationActionSchema`.
 Updates the report `status`. Returns 404 if not found.
 Writes `audit_log` (`action: 'admin.report.action'`).
 
+## Milestone M7 — Hardening / Observability
+
+### Sentry error capture
+
+`src/lib/observability.ts` initialises `@sentry/node` once at startup (call
+`initSentry()` before any route handling).  When `SENTRY_DSN` is **not** set
+the module is a complete no-op — no import errors, no startup failures.
+
+The global `onError` handler in `src/index.ts` calls `captureError(err, context)`
+after logging via `logger.error`.  Internally sensitive data (request bodies,
+auth tokens, user content) is never attached to Sentry events — `sendDefaultPii`
+is `false` and `defaultIntegrations` is `false` to suppress automatic request
+body capture.
+
+| Env var | Required | Notes |
+|---|---|---|
+| `SENTRY_DSN` | No | If unset, Sentry is disabled |
+
+### Structured logging
+
+`src/lib/logger.ts` emits one JSON line per event to stdout:
+```json
+{"timestamp":"…","level":"info","msg":"request","requestId":"a1b2c3d4e5f6g7h8","method":"POST","path":"/session/start","status":200,"durationMs":42}
+```
+
+The `requestLogger` middleware (mounted first in `src/index.ts`) logs every
+request with method, **matched route pattern** (not raw URL), status, duration,
+and a per-request correlation ID.  Query strings are deliberately excluded to
+avoid leaking any tokens that appear there.
+
+### Rate limiting
+
+`src/lib/rate-limit.ts` provides a `rateLimit({ windowMs, max })` Hono
+middleware factory.  Applied limits (30 req/min per client IP × route):
+
+| Route | Limit |
+|---|---|
+| `POST /session/start` | 30/min |
+| `POST /idv/session` | 30/min |
+| `POST /consent` | 30/min |
+| `POST /report` | 30/min |
+| `POST /block` | 30/min |
+| `POST /billing/checkout` | 30/min |
+
+`/webhooks/*` routes are intentionally **not** rate-limited — Stripe and IDV
+providers retry delivery; signature verification is the defence there.
+
+**Important:** the in-memory limiter is per-process only.
+`TODO(scale)`: swap the `Map` store for Redis / Upstash before multi-instance
+horizontal scaling.
+
+### Analytics
+
+`src/lib/analytics.ts` exports `track(event, userId?, props?)`.  Events are
+currently emitted as structured `analytics` JSON lines to stdout.
+`TODO`: forward to a real sink (Amplitude / PostHog / custom Supabase events
+table) before launch.
+
+Key events tracked:
+
+| Event | Where |
+|---|---|
+| `session.start` | `routes/session.ts` |
+| `consent.recorded` | `routes/consent.ts` |
+| `match.computed` | `routes/matches.ts` |
+| `checkout.started` | `routes/billing.ts` |
+| `subscription.activated` | `routes/stripe-webhook.ts` |
+
+No PII is included in analytics props — only structural metadata (counts, UUIDs,
+plan status booleans).
+
+### Audit coverage (M7 verification)
+
+All privileged mutations already call `writeAudit` from `src/lib/audit.ts`:
+
+| Route / handler | Audit action |
+|---|---|
+| `POST /session/start` | `session.start` |
+| `POST /idv/session` | `idv.session.start` |
+| `POST /webhooks/idv` | `idv.webhook` |
+| `POST /consent` | `consent.record` |
+| `POST /report` | `safety.report_submitted` |
+| `POST /block` | `safety.block_applied` |
+| `GET /matches` | `matches.compute` |
+| `GET /memory/export` | `memory.export` |
+| `PUT /memory/:id` | `memory.update` |
+| `DELETE /memory/:id` | `memory.delete` |
+| `POST /billing/checkout` | `billing.checkout` |
+| `POST /billing/portal` | `billing.portal` |
+| `POST /webhooks/stripe` | `billing.webhook` |
+| `POST /admin/flags/:id` | `admin.flag.action` |
+| `POST /admin/reports/:id` | `admin.report.action` |
+
+No missing audit calls were found during M7 review.
+
 ## Milestone M6 — Payments (Stripe)
 
 M6 adds Stripe-powered subscription billing with a free-tier session cap and a

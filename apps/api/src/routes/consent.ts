@@ -3,6 +3,8 @@ import { consentSubmitSchema } from '@done-swiping/shared';
 import { requireAuth, getUserId } from '../lib/auth.js';
 import { getSupabaseAdmin } from '../lib/supabase-admin.js';
 import { writeAudit } from '../lib/audit.js';
+import { rateLimit } from '../lib/rate-limit.js';
+import { track } from '../lib/analytics.js';
 
 const consent = new Hono();
 
@@ -19,7 +21,7 @@ const consent = new Hono();
  * Body: consentSubmitSchema — { consents: [{ scope, granted, version }] }
  * Response: { recorded: number }
  */
-consent.post('/', requireAuth, async (c) => {
+consent.post('/', rateLimit({ windowMs: 60_000, max: 30 }), requireAuth, async (c) => {
   const userId = getUserId(c);
 
   let rawBody: unknown;
@@ -65,6 +67,11 @@ consent.post('/', requireAuth, async (c) => {
       version: consents[0]?.version ?? null,
       count: consents.length,
     },
+  });
+
+  track('consent.recorded', userId, {
+    count: rows.length,
+    version: consents[0]?.version ?? null,
   });
 
   return c.json({ recorded: rows.length }, 200);
