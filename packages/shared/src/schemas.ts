@@ -12,6 +12,7 @@ import {
   PREFERENCE_TYPE,
   SAFETY_FLAG_STATUS,
   SAFETY_FLAG_TYPE,
+  SUBSCRIPTION_TIER,
 } from './constants.js';
 
 // --- Profile -----------------------------------------------------------------
@@ -205,3 +206,20 @@ export type SafetyClassification = z.infer<typeof safetyClassificationSchema>;
 
 // --- Embeddings (kind enum re-exported as a schema for convenience) ----------
 export const embeddingKindSchema = z.enum(EMBEDDING_KIND);
+
+// --- Billing / entitlement (M6) ----------------------------------------------
+export const checkoutResponseSchema = z.object({ url: z.string().url() });
+export type CheckoutResponse = z.infer<typeof checkoutResponseSchema>;
+
+export const portalResponseSchema = z.object({ url: z.string().url() });
+export type PortalResponse = z.infer<typeof portalResponseSchema>;
+
+// What the app reads to unlock premium. `premium` is the single source of truth
+// the UI gates on; the rest is for display.
+export const entitlementResponseSchema = z.object({
+  premium: z.boolean(),
+  tier: z.enum(SUBSCRIPTION_TIER),
+  status: z.string().nullable(),
+  current_period_end: z.string().nullable(),
+});
+export type EntitlementResponse = z.infer<typeof entitlementResponseSchema>;

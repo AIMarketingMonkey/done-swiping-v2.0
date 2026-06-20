@@ -73,6 +73,9 @@ export const AI_DISCLOSURE = {
 /** Fire a periodic AI-disclosure reminder at least this often in long sessions. */
 export const DISCLOSURE_REMINDER_INTERVAL_MS = 10 * 60 * 1000;
 
+/** Free tier: max voice conversations before premium is required (premium = unlimited). */
+export const FREE_VOICE_SESSION_LIMIT = 3;
+
 // --- API routes (see docs/ARCHITECTURE.md) -----------------------------------
 export const API_ROUTES = {
   sessionStart: '/session/start',
@@ -91,4 +94,8 @@ export const API_ROUTES = {
   adminFlagAction: (id: string | number) => `/admin/flags/${id}`,
   adminReports: '/admin/reports',
   adminReportAction: (id: string | number) => `/admin/reports/${id}`,
+  // Billing (web-first Stripe)
+  billingCheckout: '/billing/checkout',
+  billingPortal: '/billing/portal',
+  entitlement: '/me/entitlement',
 } as const;
