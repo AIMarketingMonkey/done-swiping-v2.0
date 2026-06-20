@@ -5,19 +5,25 @@
 import {
   API_ROUTES,
   type BlockInput,
+  type CheckoutResponse,
   type ConsentSubmit,
+  type EntitlementResponse,
   type IdvSessionResponse,
   type MatchesResponse,
   type MemoryResponse,
   type MemoryUpdate,
+  type PortalResponse,
   type ReportInput,
   type SessionStartResponse,
   blockInputSchema,
+  checkoutResponseSchema,
   consentSubmitSchema,
+  entitlementResponseSchema,
   idvSessionResponseSchema,
   matchesResponseSchema,
   memoryResponseSchema,
   memoryUpdateSchema,
+  portalResponseSchema,
   reportInputSchema,
   sessionStartResponseSchema,
 } from '@done-swiping/shared';
@@ -37,6 +43,18 @@ export class AgeGateError extends Error {
   constructor() {
     super('Age assurance not passed — cannot start voice session.');
     this.name = 'AgeGateError';
+  }
+}
+
+/**
+ * Thrown by startSession() when the API responds with 402.
+ * A 402 means the free voice session limit has been reached — the UI should
+ * redirect the user to /paywall so they can subscribe.
+ */
+export class PremiumRequiredError extends Error {
+  constructor() {
+    super('Free voice session limit reached — premium subscription required.');
+    this.name = 'PremiumRequiredError';
   }
 }
 
@@ -109,6 +127,10 @@ export async function startSession(): Promise<SessionStartResponse> {
     method: 'POST',
     headers,
   });
+
+  if (response.status === 402) {
+    throw new PremiumRequiredError();
+  }
 
   if (response.status === 403) {
     throw new AgeGateError();
@@ -219,5 +241,44 @@ export async function devCompleteIdv(status: 'pass' | 'fail' = 'pass'): Promise<
   await apiFetch('/idv/dev/complete', {
     method: 'POST',
     body: JSON.stringify({ status }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// M6: Billing / entitlement
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /billing/checkout — creates a Stripe Checkout session.
+ * Returns a `url` that should be opened in the system browser so the user can
+ * complete payment. Stripe bounces back to doneswiping://paywall?status=success.
+ */
+export async function startCheckout(): Promise<CheckoutResponse> {
+  return apiFetch(API_ROUTES.billingCheckout, {
+    method: 'POST',
+    parseWith: (json) => checkoutResponseSchema.parse(json),
+  });
+}
+
+/**
+ * POST /billing/portal — creates a Stripe Customer Portal session.
+ * Returns a `url` that should be opened in the system browser so the user can
+ * manage or cancel their subscription. Bounces back via the same deep-link.
+ */
+export async function openBillingPortal(): Promise<PortalResponse> {
+  return apiFetch(API_ROUTES.billingPortal, {
+    method: 'POST',
+    parseWith: (json) => portalResponseSchema.parse(json),
+  });
+}
+
+/**
+ * GET /me/entitlement — returns the current user's subscription state.
+ * `premium` is the single boolean the UI gates on; the rest is for display.
+ */
+export async function getEntitlement(): Promise<EntitlementResponse> {
+  return apiFetch(API_ROUTES.entitlement, {
+    method: 'GET',
+    parseWith: (json) => entitlementResponseSchema.parse(json),
   });
 }

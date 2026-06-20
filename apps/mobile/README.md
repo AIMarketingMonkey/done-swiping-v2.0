@@ -75,7 +75,7 @@ npx eas build --profile development --platform android
 | Voice Onboarding | `app/onboarding/voice.tsx` | M2 (LiveKit + /session/start) — **dev build required** |
 | Matches | `app/matches/index.tsx` | M4 (GET /matches, accept/decline) — **done** |
 | Memory | `app/memory/index.tsx` | M3 (GET/PUT/DELETE /memory, export) — **done** |
-| Paywall | `app/paywall/index.tsx` | M6 (Stripe Checkout + deep-link) |
+| Paywall | `app/paywall/index.tsx` | M6 (Stripe Checkout + deep-link) — **done** |
 
 ## M1 compliance gate
 
@@ -176,6 +176,57 @@ A small `⋯` `Pressable` appears in the top-right of each match card header, ne
 | Screen | File | Milestone |
 |---|---|---|
 | Matches (report/block) | `app/matches/index.tsx`, `components/ReportBlockMenu.tsx` | M5 — **done** |
+
+## M6 Paywall + entitlement (Stripe web checkout)
+
+Purchases are handled on the web to avoid Apple/Google in-app-purchase commissions.
+
+### Subscribe flow
+
+```
+Paywall screen
+  → startCheckout() — POST /billing/checkout → { url }
+  → Linking.openURL(url) — opens Stripe Checkout in system browser
+  → user completes payment
+  → Stripe redirects to doneswiping://paywall?status=success
+  → deep-link handler in _layout.tsx calls entitlementRefresh()
+  → Paywall screen re-renders in "You're premium!" state
+```
+
+### Manage / cancel flow
+
+```
+Paywall screen (premium user)
+  → openBillingPortal() — POST /billing/portal → { url }
+  → Linking.openURL(url) — opens Stripe Customer Portal in system browser
+```
+
+### Free voice session limit gate
+
+`POST /session/start` returns **402** when a free user exceeds `FREE_VOICE_SESSION_LIMIT`.
+`startSession()` in `lib/api.ts` throws `PremiumRequiredError` on 402.
+`app/onboarding/voice.tsx` catches `PremiumRequiredError` and calls
+`router.replace('/paywall')` with a contextual `message` param displayed as
+a yellow banner at the top of the paywall.
+
+### Deep-link return
+
+`app/_layout.tsx` registers both an `addEventListener('url', …)` listener (foregrounded app)
+and checks `Linking.getInitialURL()` (cold-start). On `doneswiping://paywall?status=success`
+it calls `refreshEntitlement()` then navigates to `/paywall`.
+Cancel and portal returns also navigate to `/paywall` (no refresh needed).
+
+### Entitlement hook
+
+`lib/useEntitlement.ts` — `useEntitlement()` returns `{ loading, premium, status, refresh }`.
+The paywall screen uses this directly. `EntitlementContext` in `_layout.tsx` provides a
+shared entitlement state that any other screen can read via `useEntitlementContext()`.
+
+### Native build note
+
+The deep-link scheme `doneswiping://` must be registered in `app.json` (`scheme` field)
+and in the platform-specific entitlements (iOS associated domains / Android intent filter).
+The web demo works with `Linking.getInitialURL()` / `addEventListener` as-is.
 
 ## Key architectural notes
 

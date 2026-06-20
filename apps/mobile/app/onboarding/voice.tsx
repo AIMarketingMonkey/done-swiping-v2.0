@@ -15,7 +15,7 @@
 //           contains per-turn TranscriptionSegment[] from the agent's STT output.
 
 import { AiDisclosureBanner } from '@/components/AiDisclosureBanner';
-import { AgeGateError } from '@/lib/api';
+import { AgeGateError, PremiumRequiredError } from '@/lib/api';
 import * as api from '@/lib/api';
 import { startAudioSession, stopAudioSession } from '@/lib/livekit';
 import { AI_DISCLOSURE } from '@done-swiping/shared';
@@ -216,6 +216,17 @@ export default function VoiceOnboarding(): React.JSX.Element {
       if (err instanceof AgeGateError) {
         // Age assurance gate is still blocking — send the user back.
         router.replace('/onboarding/age-gate');
+        return;
+      }
+      if (err instanceof PremiumRequiredError) {
+        // Free voice session limit reached — send the user to the paywall.
+        router.replace({
+          pathname: '/paywall',
+          params: {
+            message:
+              "You've used all your free voice conversations. Upgrade to Premium for unlimited sessions with your AI companion.",
+          },
+        });
         return;
       }
       setScreenState({
