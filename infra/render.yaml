@@ -1,38 +1,207 @@
-# Render blueprint (alternative to Fly.io). All services in a UK/EU region.
+# Render Blueprint — Done Swiping
+# Docs: https://render.com/docs/blueprint-spec
+# All services run in Frankfurt (EU) to satisfy UK/EU data-residency requirements.
+# Secrets marked sync:false MUST be set in the Render dashboard before first deploy.
+
 services:
+  # ---------------------------------------------------------------------------
+  # API — Hono (TypeScript) web service, containerised.
+  # Build context is the repo root so pnpm workspace resolution works.
+  # ---------------------------------------------------------------------------
   - type: web
     name: done-swiping-api
-    runtime: node
+    runtime: docker
     region: frankfurt
     plan: starter
-    rootDir: apps/api
-    buildCommand: corepack enable && pnpm install --no-frozen-lockfile && pnpm --filter @done-swiping/api build
-    startCommand: pnpm --filter @done-swiping/api start
+    dockerfilePath: apps/api/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
     envVars:
-      - key: API_PORT
-        value: '8787'
+      # Non-secret defaults
       - key: APP_REGION
         value: uk
-      # All secrets set in the dashboard (sync:false) — never commit them.
+      # Render injects PORT automatically for web services; the API reads it.
+      # API_PORT is the local-dev fallback (8787); not needed at runtime on Render
+      # but harmless to set so the env schema stays satisfied.
+      - key: API_PORT
+        value: '8787'
+
+      # Supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_DB_URL
+        sync: false
+
+      # Anthropic
       - key: ANTHROPIC_API_KEY
+        sync: false
+
+      # Speech
+      - key: DEEPGRAM_API_KEY
+        sync: false
+
+      # LiveKit
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+
+      # Embeddings
+      - key: EMBEDDINGS_API_KEY
+        sync: false
+
+      # Identity verification (Yoti / Persona)
+      - key: IDV_PROVIDER
+        sync: false
+      - key: IDV_API_KEY
+        sync: false
+      - key: IDV_WEBHOOK_SECRET
+        sync: false
+      - key: IDV_SDK_ID
+        sync: false
+      - key: IDV_PEM
+        sync: false
+
+      # Stripe
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_PREMIUM
+        sync: false
+
+      # Observability
+      - key: SENTRY_DSN
+        sync: false
+
+      # App
+      - key: APP_DEEP_LINK
+        value: doneswiping://
+      # API_PUBLIC_URL: set in dashboard to https://<your-render-service>.onrender.com
+      # Render does not currently support self-referential fromService references,
+      # so this must be set manually after the first deploy.
+      - key: API_PUBLIC_URL
+        sync: false
+
+  # ---------------------------------------------------------------------------
+  # Voice agent — Python / LiveKit Agents worker.
+  # Long-running process; connects out to LiveKit Cloud (no inbound HTTP port).
+  # Build context is the service directory itself.
+  # ---------------------------------------------------------------------------
+  - type: worker
+    name: done-swiping-voice-agent
+    runtime: docker
+    region: frankfurt
+    plan: starter
+    dockerfilePath: services/voice-agent/Dockerfile
+    dockerContext: services/voice-agent
+    envVars:
+      # Non-secret defaults
+      - key: APP_REGION
+        value: uk
+
+      # LiveKit
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+
+      # Speech / TTS
+      - key: DEEPGRAM_API_KEY
+        sync: false
+
+      # Anthropic
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+      # Cartesia TTS
+      - key: CARTESIA_API_KEY
+        sync: false
+      - key: CARTESIA_VOICE_ID
+        sync: false
+      - key: CARTESIA_MODEL_ID
+        sync: false
+
+      # ElevenLabs TTS (alternative provider)
+      - key: ELEVENLABS_API_KEY
+        sync: false
+
+      # TTS provider selector ("cartesia" | "elevenlabs")
+      - key: TTS_PROVIDER
+        value: cartesia
+
+      # Supabase (service role — agent writes to DB directly)
+      - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
 
-  - type: worker
-    name: done-swiping-voice-agent
-    runtime: python
+      # Embeddings
+      - key: EMBEDDINGS_API_KEY
+        sync: false
+
+      # Observability
+      - key: SENTRY_DSN
+        sync: false
+
+  # ---------------------------------------------------------------------------
+  # Web (Expo) — Static site built from the repo root.
+  # Another agent is making the Expo web export work; this wires the build.
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: done-swiping-web
+    runtime: static
     region: frankfurt
     plan: starter
-    rootDir: services/voice-agent
-    buildCommand: pip install uv && uv sync
-    startCommand: uv run python agent.py start
+    buildCommand: corepack enable && pnpm install --no-frozen-lockfile && pnpm --filter @done-swiping/mobile build
+    staticPublishPath: apps/mobile/dist
+    # SPA: route all paths to index.html
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
     envVars:
-      - key: APP_REGION
-        value: uk
-      - key: ANTHROPIC_API_KEY
+      # Public Supabase config (safe to expose to the browser)
+      - key: EXPO_PUBLIC_SUPABASE_URL
         sync: false
-      - key: DEEPGRAM_API_KEY
+      - key: EXPO_PUBLIC_SUPABASE_ANON_KEY
         sync: false
-      - key: LIVEKIT_API_SECRET
+      # API URL — point at the done-swiping-api service.
+      # Use fromService once Render supports cross-service URL references,
+      # or set manually in the dashboard to https://<api>.onrender.com
+      - key: EXPO_PUBLIC_API_URL
+        sync: false
+
+  # ---------------------------------------------------------------------------
+  # Admin — Vite SPA, static site.
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: done-swiping-admin
+    runtime: static
+    region: frankfurt
+    plan: starter
+    buildCommand: corepack enable && pnpm install --no-frozen-lockfile && pnpm --filter @done-swiping/admin build
+    staticPublishPath: apps/admin/dist
+    # SPA: route all paths to index.html
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+      # Point at the done-swiping-api service URL
+      - key: VITE_API_URL
         sync: false

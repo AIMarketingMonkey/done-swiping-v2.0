@@ -99,9 +99,11 @@ app.onError((err, c) => {
 });
 
 // --- Server start -----------------------------------------------------------
-const port = env.API_PORT;
+// Render (and other PaaS hosts) inject PORT at runtime; fall back to API_PORT
+// for local dev (default 8787).  Bind to 0.0.0.0 so the container is reachable.
+const port = process.env['PORT'] ? Number(process.env['PORT']) : env.API_PORT;
 
-serve({ fetch: app.fetch, port }, (info) => {
+serve({ fetch: app.fetch, port, hostname: '0.0.0.0' }, (info) => {
   logger.info(`@done-swiping/api listening`, { port: info.port });
   logger.info('Routes mounted', {
     routes: [
