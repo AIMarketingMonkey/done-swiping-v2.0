@@ -1,12 +1,18 @@
 # Render Blueprint — Done Swiping
 # Docs: https://render.com/docs/blueprint-spec
-# All services run in Frankfurt (EU) to satisfy UK/EU data-residency requirements.
-# Secrets marked sync:false MUST be set in the Render dashboard before first deploy.
+#
+# This declares only the env vars NEEDED FOR THE FIRST DEPLOY. Optional features
+# (real age vendor, Stripe payments, Sentry, embeddings/matching, ElevenLabs)
+# are added later in the Render dashboard — they're not listed here so the
+# Blueprint doesn't prompt you for keys you don't have yet. The code runs fine
+# without them (dev-mock age gate, payments return 501, etc.).
+#
+# Docker web/worker run in Frankfurt (EU). Static sites are global (no region).
+# Vars marked sync:false are entered in the dashboard; you already have most.
 
 services:
   # ---------------------------------------------------------------------------
-  # API — Hono (TypeScript) web service, containerised.
-  # Build context is the repo root so pnpm workspace resolution works.
+  # API — Hono (TypeScript) web service. Build context = repo root (pnpm workspace).
   # ---------------------------------------------------------------------------
   - type: web
     name: done-swiping-api
@@ -17,16 +23,12 @@ services:
     dockerContext: .
     healthCheckPath: /health
     envVars:
-      # Non-secret defaults
       - key: APP_REGION
         value: uk
-      # Render injects PORT automatically for web services; the API reads it.
-      # API_PORT is the local-dev fallback (8787); not needed at runtime on Render
-      # but harmless to set so the env schema stays satisfied.
-      - key: API_PORT
-        value: '8787'
-
-      # Supabase
+      - key: IDV_DEV_MODE # dev-mock age gate — no IDV vendor needed yet
+        value: 'true'
+      - key: APP_DEEP_LINK
+        value: doneswiping://
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_ANON_KEY
@@ -35,66 +37,29 @@ services:
         sync: false
       - key: SUPABASE_DB_URL
         sync: false
-
-      # Anthropic
       - key: ANTHROPIC_API_KEY
         sync: false
-
-      # Speech
       - key: DEEPGRAM_API_KEY
         sync: false
-
-      # LiveKit
       - key: LIVEKIT_URL
         sync: false
       - key: LIVEKIT_API_KEY
         sync: false
       - key: LIVEKIT_API_SECRET
         sync: false
-
-      # Embeddings
-      - key: EMBEDDINGS_API_KEY
-        sync: false
-
-      # Identity verification (Yoti / Persona)
-      - key: IDV_PROVIDER
-        sync: false
-      - key: IDV_API_KEY
-        sync: false
-      - key: IDV_WEBHOOK_SECRET
-        sync: false
-      - key: IDV_SDK_ID
-        sync: false
-      - key: IDV_PEM
-        sync: false
-
-      # Stripe
-      - key: STRIPE_SECRET_KEY
-        sync: false
-      - key: STRIPE_PUBLISHABLE_KEY
-        sync: false
-      - key: STRIPE_WEBHOOK_SECRET
-        sync: false
-      - key: STRIPE_PRICE_PREMIUM
-        sync: false
-
-      # Observability
-      - key: SENTRY_DSN
-        sync: false
-
-      # App
-      - key: APP_DEEP_LINK
-        value: doneswiping://
-      # API_PUBLIC_URL: set in dashboard to https://<your-render-service>.onrender.com
-      # Render does not currently support self-referential fromService references,
-      # so this must be set manually after the first deploy.
+      # Set to this service's own https URL AFTER the first deploy
+      # (e.g. https://done-swiping-api.onrender.com). Leave blank for now.
       - key: API_PUBLIC_URL
         sync: false
+      # --- Add later in the dashboard when you enable each feature ---
+      #   EMBEDDINGS_API_KEY                          (memory matching)
+      #   STRIPE_SECRET_KEY / STRIPE_PUBLISHABLE_KEY /
+      #   STRIPE_WEBHOOK_SECRET / STRIPE_PRICE_PREMIUM (payments)
+      #   IDV_PROVIDER / IDV_API_KEY / IDV_WEBHOOK_SECRET (real age vendor; then set IDV_DEV_MODE=false)
+      #   SENTRY_DSN                                  (error tracking)
 
   # ---------------------------------------------------------------------------
-  # Voice agent — Python / LiveKit Agents worker.
-  # Long-running process; connects out to LiveKit Cloud (no inbound HTTP port).
-  # Build context is the service directory itself.
+  # Voice agent — Python / LiveKit Agents worker (connects out to LiveKit).
   # ---------------------------------------------------------------------------
   - type: worker
     name: done-swiping-voice-agent
@@ -104,91 +69,63 @@ services:
     dockerfilePath: services/voice-agent/Dockerfile
     dockerContext: services/voice-agent
     envVars:
-      # Non-secret defaults
       - key: APP_REGION
         value: uk
-
-      # LiveKit
+      - key: TTS_PROVIDER # cartesia | elevenlabs | ab
+        value: cartesia
       - key: LIVEKIT_URL
         sync: false
       - key: LIVEKIT_API_KEY
         sync: false
       - key: LIVEKIT_API_SECRET
         sync: false
-
-      # Speech / TTS
       - key: DEEPGRAM_API_KEY
         sync: false
-
-      # Anthropic
       - key: ANTHROPIC_API_KEY
         sync: false
-
-      # Cartesia TTS
       - key: CARTESIA_API_KEY
         sync: false
       - key: CARTESIA_VOICE_ID
         sync: false
-      - key: CARTESIA_MODEL_ID
-        sync: false
-
-      # ElevenLabs TTS (alternative provider)
-      - key: ELEVENLABS_API_KEY
-        sync: false
-
-      # TTS provider selector ("cartesia" | "elevenlabs")
-      - key: TTS_PROVIDER
-        value: cartesia
-
-      # Supabase (service role — agent writes to DB directly)
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
-
-      # Embeddings
-      - key: EMBEDDINGS_API_KEY
-        sync: false
-
-      # Observability
-      - key: SENTRY_DSN
-        sync: false
+      # --- Add later in the dashboard ---
+      #   ELEVENLABS_API_KEY (+ set TTS_PROVIDER=elevenlabs|ab)
+      #   CARTESIA_MODEL_ID  (defaults to sonic-3)
+      #   EMBEDDINGS_API_KEY (extraction → matching)
+      #   SENTRY_DSN
 
   # ---------------------------------------------------------------------------
-  # Web (Expo) — Static site built from the repo root.
-  # Another agent is making the Expo web export work; this wires the build.
+  # Web (Expo web export) — global static site. You already have these values
+  # (Supabase URL + anon key); set the API URL after the API's first deploy.
   # ---------------------------------------------------------------------------
   - type: web
     name: done-swiping-web
     runtime: static
     buildCommand: corepack enable && pnpm install --no-frozen-lockfile && pnpm --filter @done-swiping/mobile build
     staticPublishPath: apps/mobile/dist
-    # SPA: route all paths to index.html
     routes:
       - type: rewrite
         source: /*
         destination: /index.html
     envVars:
-      # Public Supabase config (safe to expose to the browser)
       - key: EXPO_PUBLIC_SUPABASE_URL
         sync: false
       - key: EXPO_PUBLIC_SUPABASE_ANON_KEY
         sync: false
-      # API URL — point at the done-swiping-api service.
-      # Use fromService once Render supports cross-service URL references,
-      # or set manually in the dashboard to https://<api>.onrender.com
-      - key: EXPO_PUBLIC_API_URL
+      - key: EXPO_PUBLIC_API_URL # https://done-swiping-api.onrender.com (after API deploys)
         sync: false
 
   # ---------------------------------------------------------------------------
-  # Admin — Vite SPA, static site.
+  # Admin — Vite SPA, global static site.
   # ---------------------------------------------------------------------------
   - type: web
     name: done-swiping-admin
     runtime: static
     buildCommand: corepack enable && pnpm install --no-frozen-lockfile && pnpm --filter @done-swiping/admin build
     staticPublishPath: apps/admin/dist
-    # SPA: route all paths to index.html
     routes:
       - type: rewrite
         source: /*
@@ -198,6 +135,5 @@ services:
         sync: false
       - key: VITE_SUPABASE_ANON_KEY
         sync: false
-      # Point at the done-swiping-api service URL
-      - key: VITE_API_URL
+      - key: VITE_API_URL # https://done-swiping-api.onrender.com (after API deploys)
         sync: false
