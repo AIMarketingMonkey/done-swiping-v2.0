@@ -1,44 +1,40 @@
-// LiveKit integration helpers.
+// LiveKit integration helpers — platform-agnostic TypeScript barrel.
 //
-// NATIVE BUILD REQUIRED:
-//   @livekit/react-native depends on @livekit/react-native-webrtc which
-//   contains native iOS/Android code. It will NOT run in Expo Go.
-//   You must run `expo prebuild` and build a development client or production
-//   binary. See README.md for the full prebuild instructions.
-
-import { AudioSession, registerGlobals } from '@livekit/react-native';
+// Metro / Expo Router use platform-suffix resolution at BUNDLE time:
+//   .native.ts  → iOS + Android  (imports @livekit/react-native)
+//   .web.ts     → browser build  (no native imports)
+//
+// At runtime Metro ALWAYS prefers livekit.native.ts / livekit.web.ts over
+// this file, so the implementations here are never actually executed.
+// However `tsc --noEmit` does NOT perform Metro's platform suffix resolution,
+// so it type-checks this file directly. We therefore provide a safe web-style
+// no-op implementation here so `tsc` sees well-typed symbols without pulling
+// in the native @livekit/react-native package.
+//
+// IMPORTANT: Do NOT import @livekit/react-native or @livekit/react-native-webrtc
+// here — this file must be importable in any context, including type-check
+// and non-native test environments.
 
 /**
- * Call once at app startup (e.g. in the root layout) to register the WebRTC
- * globals required by @livekit/react-native.
- *
- * Must be called before any Room is created. Internally calls
- * `registerGlobals()` from @livekit/react-native-webrtc and sets up the URL
- * polyfill and iOS audio session management.
+ * No-op implementation used only for TypeScript resolution.
+ * Metro replaces this at bundle time with the platform-specific variant.
  */
 export function setupLiveKit(): void {
-  registerGlobals();
+  // Replaced at bundle time by livekit.native.ts or livekit.web.ts
 }
 
 /**
- * Start a native audio session configured for voice communication.
- *
- * Call this before connecting to a LiveKit room so audio routing is correct
- * from the moment the first track is published/subscribed.
- *
- * On iOS this activates the AVAudioSession.
- * On Android this sets communication audio mode.
+ * No-op implementation used only for TypeScript resolution.
+ * Metro replaces this at bundle time with the platform-specific variant.
  */
 export async function startAudioSession(): Promise<void> {
-  await AudioSession.startAudioSession();
+  // Replaced at bundle time by livekit.native.ts or livekit.web.ts
 }
 
 /**
- * Stop the native audio session.
- *
- * Call this after the room has disconnected to release audio focus and
- * restore the previous audio routing (earpiece / media playback).
+ * No-op implementation used only for TypeScript resolution.
+ * Metro replaces this at bundle time with the platform-specific variant.
  */
 export async function stopAudioSession(): Promise<void> {
-  await AudioSession.stopAudioSession();
+  // Replaced at bundle time by livekit.native.ts or livekit.web.ts
 }

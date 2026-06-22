@@ -14,7 +14,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@babel/runtime": "^8.0.0",
     "@done-swiping/shared": "workspace:*",
+    "@expo/metro-runtime": "^56.0.15",
+    "@livekit/components-react": "^2.6.1",
+    "@livekit/components-styles": "^1.1.1",
     "@livekit/react-native": "^2.11.1",
     "@livekit/react-native-webrtc": "^144.1.1",
     "@react-native-async-storage/async-storage": "1.23.1",
@@ -24,11 +28,14 @@
     "expo-linking": "~7.0.0",
     "expo-router": "~4.0.0",
     "expo-status-bar": "~2.0.0",
+    "livekit-client": "^2.5.0",
     "react": "18.3.1",
+    "react-dom": "18.3.1",
     "react-native": "0.76.5",
     "react-native-safe-area-context": "4.12.0",
     "react-native-screens": "~4.0.0",
     "react-native-url-polyfill": "^2.0.0",
+    "react-native-web": "~0.19.13",
     "zod": "^3.22.4"
   },
   "devDependencies": {

@@ -16,6 +16,7 @@ export default tseslint.config(
       'babel.config.js',
       'metro.config.js',
       '*.config.js',
+      'lib/livekit-native-stub.js',
     ],
   },
   js.configs.recommended,

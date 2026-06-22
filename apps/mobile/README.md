@@ -27,11 +27,55 @@ Copy `.env.example` to `.env.local` and fill in your values:
 
 **Never add** the Supabase service-role key here — it bypasses Row Level Security and must only exist server-side.
 
-## Native build requirement for LiveKit / voice screen (M2)
+## Web build
 
-`@livekit/react-native` depends on `@livekit/react-native-webrtc`, which contains native iOS and Android code (C++ WebRTC). **This will NOT run in Expo Go or the web platform.**
+The app exports as a static web bundle that can be hosted on any CDN or cloud URL:
 
-The voice screen (`app/onboarding/voice.tsx`) requires a **development client build** (or production build):
+```bash
+# From the monorepo root:
+pnpm --filter @done-swiping/mobile build
+
+# Or from this directory:
+pnpm build   # runs `expo export --platform web`, emits apps/mobile/dist/
+```
+
+The output goes to `apps/mobile/dist/` (two JS chunks + assets + `index.html`). The web
+build includes a **browser voice screen** (`app/onboarding/voice.web.tsx`) that uses
+`livekit-client` and `@livekit/components-react` — both pure-JS packages that work in any
+modern browser via native browser WebRTC. No native modules are needed for the web path.
+
+### Browser voice (how it works)
+
+1. `POST /session/start` → `{ livekit_url, token }` (same API endpoint as native).
+2. `<LiveKitRoom>` from `@livekit/components-react` connects and publishes the microphone.
+3. `<RoomAudioRenderer>` injects HTML `<audio>` elements for all remote tracks automatically.
+4. `useVoiceAssistant()` / `useConnectionState()` / `useLocalParticipant()` drive the UI.
+5. `AiDisclosureBanner` is always visible (EU AI Act Art. 50 compliance).
+6. `AgeGateError` (403) redirects to `/onboarding/age-gate`.
+7. `PremiumRequiredError` (402) redirects to `/paywall`.
+
+### Platform split — how native and web code are separated
+
+| File | Platform | What it does |
+|---|---|---|
+| `app/onboarding/voice.native.tsx` | iOS + Android | Full LiveKit native room via `@livekit/react-native` |
+| `app/onboarding/voice.web.tsx` | Browser | Browser LiveKit room via `@livekit/components-react` |
+| `lib/livekit.native.ts` | iOS + Android | `setupLiveKit`, `startAudioSession`, `stopAudioSession` via native APIs |
+| `lib/livekit.web.ts` | Browser | Same function signatures, all no-ops (browser manages audio automatically) |
+| `lib/livekit.ts` | TypeScript fallback | No-op implementations for `tsc` — Metro always prefers the platform suffix |
+| `lib/livekit-native-stub.js` | Web bundle | Stub for `@livekit/react-native` / `@livekit/react-native-webrtc` — redirected by `metro.config.js` `resolveRequest` so native packages never execute in the browser |
+
+Metro's `resolveRequest` in `metro.config.js` redirects any import of `@livekit/react-native`
+or `@livekit/react-native-webrtc` to the stub when `platform === 'web'`, preventing native
+initialisation errors in the browser bundle even when `voice.native.tsx` is compiled into it.
+
+## Native build requirement for voice screen (M2, iOS + Android)
+
+`@livekit/react-native` depends on `@livekit/react-native-webrtc`, which contains native iOS
+and Android code (C++ WebRTC). **This will NOT run in Expo Go.**
+
+The native voice screen (`app/onboarding/voice.native.tsx`) requires a **development client
+build** (or production build):
 
 ```bash
 # 1. Generate native projects (run once, or after any native dep change)
@@ -55,14 +99,16 @@ npx eas build --profile development --platform android
 
 - **iOS:** The `NSMicrophoneUsageDescription` is already set in `app.json`. The native permission prompt appears automatically on first microphone publish.
 - **Android:** `RECORD_AUDIO` is declared in `app.json`. The voice screen requests the permission at runtime via `PermissionsAndroid` before the session starts.
+- **Browser:** No extra configuration needed. The browser prompts for microphone access when `<LiveKitRoom audio>` first attempts to capture the mic.
 
-### What does NOT work without a native build
+### Feature matrix
 
-| Feature | Expo Go | Web | Dev build |
+| Feature | Expo Go | Web (browser) | Native dev build |
 |---|---|---|---|
 | Auth, age-gate, consent | Works | Works | Works |
 | Matches, memory screens | Works | Works | Works |
-| Voice session (LiveKit) | **No** | **No** | **Yes** |
+| Voice session — browser LiveKit | No | **Yes** | No |
+| Voice session — native LiveKit | No | No | **Yes** |
 
 ## Screen → milestone map
 
@@ -72,7 +118,8 @@ npx eas build --profile development --platform android
 | Sign Up | `app/(auth)/sign-up.tsx` | M0 (email done); M1 (Apple/Google) |
 | Age Gate | `app/onboarding/age-gate.tsx` | M1 (IDV provider integration) |
 | Consent | `app/onboarding/consent.tsx` | M1 (real API consent recording) |
-| Voice Onboarding | `app/onboarding/voice.tsx` | M2 (LiveKit + /session/start) — **dev build required** |
+| Voice Onboarding (native) | `app/onboarding/voice.native.tsx` | M2 (LiveKit + /session/start) — **dev build required** |
+| Voice Onboarding (web) | `app/onboarding/voice.web.tsx` | M2 (livekit-client + /session/start) — **works in browser** |
 | Matches | `app/matches/index.tsx` | M4 (GET /matches, accept/decline) — **done** |
 | Memory | `app/memory/index.tsx` | M3 (GET/PUT/DELETE /memory, export) — **done** |
 | Paywall | `app/paywall/index.tsx` | M6 (Stripe Checkout + deep-link) — **done** |
@@ -205,7 +252,7 @@ Paywall screen (premium user)
 
 `POST /session/start` returns **402** when a free user exceeds `FREE_VOICE_SESSION_LIMIT`.
 `startSession()` in `lib/api.ts` throws `PremiumRequiredError` on 402.
-`app/onboarding/voice.tsx` catches `PremiumRequiredError` and calls
+`app/onboarding/voice.native.tsx` and `app/onboarding/voice.web.tsx` each catch `PremiumRequiredError` and call
 `router.replace('/paywall')` with a contextual `message` param displayed as
 a yellow banner at the top of the paywall.
 
