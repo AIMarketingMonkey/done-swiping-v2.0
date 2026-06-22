@@ -47,6 +47,7 @@ cd services/voice-agent && uv sync && uv run python agent.py dev
 
 - **`CLAUDE.md`** — project context + non-negotiable compliance rules.
 - **`docs/RUNBOOK.md`** — run the whole app locally, end-to-end (start here to test).
+- **`docs/DEPLOY.md`** — deploy everything to the cloud (Render) from this repo.
 - **`docs/BUILD_PLAN.md`** — milestones M0–M7 with acceptance criteria.
 - **`docs/SETUP.md`** — step-by-step external service / API-key setup guide.
 - **`docs/ARCHITECTURE.md`** — system architecture and API contracts.
