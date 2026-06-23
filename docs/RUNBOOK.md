@@ -41,18 +41,18 @@ Fill in (★ = required for the voice loop):
 ★ ANTHROPIC_API_KEY=...
 ★ DEEPGRAM_API_KEY=...
 ★ LIVEKIT_URL=wss://<your-project>.livekit.cloud   ★ LIVEKIT_API_KEY=...   ★ LIVEKIT_API_SECRET=...
-★ CARTESIA_API_KEY=...        CARTESIA_VOICE_ID=<a Sonic voice id>   CARTESIA_MODEL_ID=sonic-3
-  ELEVENLABS_API_KEY=...      (only if TTS_PROVIDER=elevenlabs|ab)
-  TTS_PROVIDER=cartesia       (cartesia | elevenlabs | ab)
+★ ELEVENLABS_API_KEY=...      ELEVENLABS_VOICE_ID=<a voice id>   ELEVENLABS_MODEL_ID=eleven_turbo_v2_5
+  TTS_PROVIDER=elevenlabs     (elevenlabs | cartesia | ab)
+  CARTESIA_API_KEY=...        (only if TTS_PROVIDER=cartesia|ab)   CARTESIA_VOICE_ID=...   CARTESIA_MODEL_ID=sonic-3
 ★ IDV_DEV_MODE=true           (lets you pass the age gate with a dev button — no Yoti needed)
   EMBEDDINGS_API_KEY=...      (OpenAI key — needed for Phase B matching)
   EMBEDDINGS_MODEL=text-embedding-3-small
   API_PUBLIC_URL=http://localhost:8787
   STRIPE_SECRET_KEY=... STRIPE_WEBHOOK_SECRET=... STRIPE_PRICE_PREMIUM=...   (Phase C)
 ```
-> ⚠️ You're currently missing `LIVEKIT_URL`, `CARTESIA_API_KEY`, `ELEVENLABS_API_KEY`,
+> ⚠️ You're currently missing `LIVEKIT_URL`, `ELEVENLABS_API_KEY`,
 > `EMBEDDINGS_API_KEY`, and the `STRIPE_*` keys — grab those from each provider
-> (see `docs/SETUP.md`). LiveKit/Cartesia accounts are free to start.
+> (see `docs/SETUP.md`). LiveKit/ElevenLabs accounts are free to start.
 
 ### b) `apps/mobile/.env` (the app — only public values)
 ```bash

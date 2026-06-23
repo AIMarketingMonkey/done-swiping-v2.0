@@ -19,8 +19,8 @@ Compliance:
 - On session close: conversations.ended_at set, extraction worker triggered.
 
 A/B TTS:
-  TTS_PROVIDER=cartesia   → always Cartesia (default)
-  TTS_PROVIDER=elevenlabs → always ElevenLabs
+  TTS_PROVIDER=elevenlabs → always ElevenLabs (default)
+  TTS_PROVIDER=cartesia   → always Cartesia
   TTS_PROVIDER=ab         → stable random split per session (room-name hash),
                             which provider was chosen is logged for analysis.
 
@@ -120,8 +120,8 @@ def _build_tts(room_name: str) -> tuple[agents_llm.tts.TTS, str]:  # type: ignor
     """
     Return (tts_instance, provider_label) according to TTS_PROVIDER env var.
 
-    TTS_PROVIDER=cartesia   → Cartesia always (default)
-    TTS_PROVIDER=elevenlabs → ElevenLabs always
+    TTS_PROVIDER=elevenlabs → ElevenLabs always (default)
+    TTS_PROVIDER=cartesia   → Cartesia always
     TTS_PROVIDER=ab         → stable random split by room-name hash (50/50)
     """
     from livekit.agents import tts as agents_tts
@@ -147,6 +147,7 @@ def _build_tts(room_name: str) -> tuple[agents_llm.tts.TTS, str]:  # type: ignor
         tts_instance = lk_elevenlabs.TTS(
             api_key=settings.elevenlabs_api_key,
             voice_id=settings.elevenlabs_voice_id,
+            model=settings.elevenlabs_model_id,
         )
 
     return tts_instance, chosen

@@ -40,12 +40,12 @@ Set `TTS_PROVIDER` in your `.env`:
 
 | Value | Behaviour |
 |---|---|
-| `cartesia` | Always Cartesia (default) |
-| `elevenlabs` | Always ElevenLabs |
+| `elevenlabs` | Always ElevenLabs (default) |
+| `cartesia` | Always Cartesia |
 | `ab` | Stable 50/50 split per session by SHA-256 of room name. Which provider was used is logged at INFO level for analysis. |
 
 When `TTS_PROVIDER=ab` the session log will contain a line like:
-`TTS provider selected: cartesia (TTS_PROVIDER=ab) room=<name> conversation=<id>`
+`TTS provider selected: elevenlabs (TTS_PROVIDER=ab) room=<name> conversation=<id>`
 
 ## Dev commands
 
@@ -84,12 +84,13 @@ Required variables:
 | `ANTHROPIC_API_KEY` | Anthropic API key (brain + safety + extraction) |
 | `BRAIN_MODEL` | Brain model string (default: `claude-sonnet-4-6`) |
 | `WORKER_MODEL` | Worker/safety model (default: `claude-haiku-4-5-20251001`) |
-| `CARTESIA_API_KEY` | Cartesia TTS API key |
-| `CARTESIA_VOICE_ID` | Cartesia voice ID (default: `f786b574-daa5-4673-aa0c-cbe3e8534c02`) |
-| `CARTESIA_MODEL_ID` | Cartesia model (default: `sonic-3`) |
+| `TTS_PROVIDER` | `elevenlabs` / `cartesia` / `ab` (default: `elevenlabs`) |
 | `ELEVENLABS_API_KEY` | ElevenLabs TTS API key (required when `TTS_PROVIDER=elevenlabs` or `ab`) |
 | `ELEVENLABS_VOICE_ID` | ElevenLabs voice ID (default: `hpp4J3VqNfWAUOO0d1Us`) |
-| `TTS_PROVIDER` | `cartesia` / `elevenlabs` / `ab` (default: `cartesia`) |
+| `ELEVENLABS_MODEL_ID` | ElevenLabs model (default: `eleven_turbo_v2_5`) |
+| `CARTESIA_API_KEY` | Cartesia TTS API key (required only when `TTS_PROVIDER=cartesia` or `ab`) |
+| `CARTESIA_VOICE_ID` | Cartesia voice ID (default: `f786b574-daa5-4673-aa0c-cbe3e8534c02`) |
+| `CARTESIA_MODEL_ID` | Cartesia model (default: `sonic-3`) |
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service-role key (bypasses RLS) |
 | `EMBEDDINGS_API_KEY` | Embeddings provider API key |

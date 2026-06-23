@@ -77,14 +77,31 @@ class Settings:
     )
 
     # TTS — provider selection
-    # tts_provider: "cartesia" | "elevenlabs" | "ab"
+    # tts_provider: "elevenlabs" | "cartesia" | "ab"
     #   "ab" enables a stable 50/50 A/B split per session (room-name hash).
+    # ElevenLabs is the primary provider; Cartesia is optional and only needed
+    # when TTS_PROVIDER is "cartesia" or "ab".  Validated in __post_init__ so the
+    # agent boots on whichever provider's key is actually present.
     tts_provider: str = field(
-        default_factory=lambda: _optional("TTS_PROVIDER", "cartesia")
+        default_factory=lambda: _optional("TTS_PROVIDER", "elevenlabs")
     )
 
-    # Cartesia TTS
-    cartesia_api_key: str = field(default_factory=lambda: _require("CARTESIA_API_KEY"))
+    # ElevenLabs TTS (primary).  Key required when tts_provider is "elevenlabs" or "ab".
+    elevenlabs_api_key: str = field(
+        default_factory=lambda: _optional("ELEVENLABS_API_KEY", "")
+    )
+    elevenlabs_voice_id: str = field(
+        default_factory=lambda: _optional("ELEVENLABS_VOICE_ID", "hpp4J3VqNfWAUOO0d1Us")
+    )
+    elevenlabs_model_id: str = field(
+        default_factory=lambda: _optional("ELEVENLABS_MODEL_ID", "eleven_turbo_v2_5")
+    )
+
+    # Cartesia TTS (optional alternative).  Key required only when tts_provider is
+    # "cartesia" or "ab"; left blank otherwise so the agent runs on ElevenLabs alone.
+    cartesia_api_key: str = field(
+        default_factory=lambda: _optional("CARTESIA_API_KEY", "")
+    )
     # Voice and model IDs for Cartesia.  Defaults are sensible for UK-English dating context.
     cartesia_voice_id: str = field(
         default_factory=lambda: _optional(
@@ -93,14 +110,6 @@ class Settings:
     )
     cartesia_model_id: str = field(
         default_factory=lambda: _optional("CARTESIA_MODEL_ID", "sonic-3")
-    )
-
-    # ElevenLabs TTS (used when tts_provider="elevenlabs" or the B arm of A/B)
-    elevenlabs_api_key: str = field(
-        default_factory=lambda: _optional("ELEVENLABS_API_KEY", "")
-    )
-    elevenlabs_voice_id: str = field(
-        default_factory=lambda: _optional("ELEVENLABS_VOICE_ID", "hpp4J3VqNfWAUOO0d1Us")
     )
 
     # Supabase
@@ -124,6 +133,27 @@ class Settings:
 
     # Transcript retention: 30 days (GDPR minimum feasible).
     transcript_retention_days: int = 30
+
+    def __post_init__(self) -> None:
+        """Validate that the selected TTS provider has its API key configured.
+
+        Checked per-provider (not eagerly) so the agent can run on ElevenLabs
+        alone, or Cartesia alone, instead of requiring both keys to be present.
+        """
+        provider = self.tts_provider.lower()
+        if provider not in ("elevenlabs", "cartesia", "ab"):
+            raise ConfigError(
+                f"TTS_PROVIDER='{self.tts_provider}' is invalid. "
+                "Use 'elevenlabs', 'cartesia', or 'ab'."
+            )
+        if provider in ("elevenlabs", "ab") and not self.elevenlabs_api_key:
+            raise ConfigError(
+                f"TTS_PROVIDER='{self.tts_provider}' but ELEVENLABS_API_KEY is not set."
+            )
+        if provider in ("cartesia", "ab") and not self.cartesia_api_key:
+            raise ConfigError(
+                f"TTS_PROVIDER='{self.tts_provider}' but CARTESIA_API_KEY is not set."
+            )
 
 
 _settings: Settings | None = None

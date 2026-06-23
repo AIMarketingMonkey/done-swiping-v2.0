@@ -75,10 +75,11 @@ into `.env`.
 
 ## 5. Cartesia / ElevenLabs — TTS (M2)
 
-- **Cartesia (primary):** https://play.cartesia.ai → API key → `CARTESIA_API_KEY`.
-  Pick a warm companion voice (Sonic-3) and note its voice ID.
-- **ElevenLabs (optional A/B):** https://elevenlabs.io → Profile → API key →
-  `ELEVENLABS_API_KEY`. Choose a Flash v2.5 voice.
+- **ElevenLabs (primary):** https://elevenlabs.io → Profile → API key →
+  `ELEVENLABS_API_KEY`. Pick a warm companion voice and note its voice ID
+  (`ELEVENLABS_VOICE_ID`). Leave `TTS_PROVIDER=elevenlabs` (the default).
+- **Cartesia (optional alternative / A/B):** https://play.cartesia.ai → API key →
+  `CARTESIA_API_KEY`. Only needed when `TTS_PROVIDER=cartesia` or `ab`.
 
 ## 6. Embeddings (M3)
 

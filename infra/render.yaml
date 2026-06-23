@@ -71,8 +71,8 @@ services:
     envVars:
       - key: APP_REGION
         value: uk
-      - key: TTS_PROVIDER # cartesia | elevenlabs | ab
-        value: cartesia
+      - key: TTS_PROVIDER # elevenlabs | cartesia | ab
+        value: elevenlabs
       - key: LIVEKIT_URL
         sync: false
       - key: LIVEKIT_API_KEY
@@ -83,17 +83,16 @@ services:
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
-      - key: CARTESIA_API_KEY
-        sync: false
-      - key: CARTESIA_VOICE_ID
+      - key: ELEVENLABS_API_KEY
         sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       # --- Add later in the dashboard ---
-      #   ELEVENLABS_API_KEY (+ set TTS_PROVIDER=elevenlabs|ab)
-      #   CARTESIA_MODEL_ID  (defaults to sonic-3)
+      #   ELEVENLABS_VOICE_ID (defaults to a warm voice; override to pick your own)
+      #   ELEVENLABS_MODEL_ID (defaults to eleven_turbo_v2_5)
+      #   CARTESIA_API_KEY / CARTESIA_VOICE_ID (only if TTS_PROVIDER=cartesia|ab)
       #   EMBEDDINGS_API_KEY (extraction → matching)
       #   SENTRY_DSN
 

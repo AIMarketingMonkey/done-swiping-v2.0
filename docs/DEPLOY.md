@@ -31,8 +31,9 @@ Each service has an **Environment** tab. Fill in the variables marked
   `DEEPGRAM_API_KEY`, `LIVEKIT_URL/API_KEY/API_SECRET`, `EMBEDDINGS_API_KEY`,
   `IDV_DEV_MODE=true`, (later) `STRIPE_*`, `SENTRY_DSN`.
 - **`done-swiping-voice-agent`** — `LIVEKIT_URL/API_KEY/API_SECRET`,
-  `DEEPGRAM_API_KEY`, `ANTHROPIC_API_KEY`, `CARTESIA_API_KEY`, `CARTESIA_VOICE_ID`,
-  `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `EMBEDDINGS_API_KEY`.
+  `DEEPGRAM_API_KEY`, `ANTHROPIC_API_KEY`, `TTS_PROVIDER=elevenlabs`,
+  `ELEVENLABS_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+  `EMBEDDINGS_API_KEY`. (Cartesia keys only if you set `TTS_PROVIDER=cartesia|ab`.)
 - **`done-swiping-web`** — `EXPO_PUBLIC_SUPABASE_URL`,
   `EXPO_PUBLIC_SUPABASE_ANON_KEY`, `EXPO_PUBLIC_API_URL` (the api's URL).
 - **`done-swiping-admin`** — `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`,

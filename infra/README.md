@@ -40,8 +40,8 @@ fly secrets set ANTHROPIC_API_KEY=... SUPABASE_SERVICE_ROLE_KEY=... --app done-s
      `LIVEKIT_URL/API_KEY/API_SECRET`, `STRIPE_*`, `IDV_*`, `SENTRY_DSN`.
      Then set `API_PUBLIC_URL` to the service's own `.onrender.com` URL.
    - `done-swiping-voice-agent`: `LIVEKIT_*`, `DEEPGRAM_API_KEY`,
-     `ANTHROPIC_API_KEY`, `CARTESIA_*`, `SUPABASE_URL`,
-     `SUPABASE_SERVICE_ROLE_KEY`, `SENTRY_DSN`.
+     `ANTHROPIC_API_KEY`, `TTS_PROVIDER=elevenlabs`, `ELEVENLABS_API_KEY`,
+     `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SENTRY_DSN`.
    - `done-swiping-web`: `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`,
      `EXPO_PUBLIC_API_URL` (set to the api service URL).
    - `done-swiping-admin`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`,
