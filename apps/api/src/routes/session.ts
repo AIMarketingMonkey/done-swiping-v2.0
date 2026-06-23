@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { randomUUID } from 'node:crypto';
 import { AccessToken } from 'livekit-server-sdk';
 import { FREE_VOICE_SESSION_LIMIT, sessionStartResponseSchema } from '@done-swiping/shared';
 import { requireAuth, getUserId } from '../lib/auth.js';
@@ -16,9 +17,10 @@ const session = new Hono();
  * Issues a LiveKit room token for the authenticated user and returns the
  * connection details the mobile client needs to join a voice session.
  *
- * TODO(M6): Check `subscriptions` table for entitlement before issuing token.
- * TODO(M2): Generate a stable room id per-conversation rather than always
- *            using the onboarding room; store conversation record in DB.
+ * Each call issues a UNIQUE room id (one room per voice session / conversation).
+ * This is also required for the voice agent's automatic dispatch to fire: LiveKit
+ * only assigns the agent to newly-created rooms, so a fixed per-user room name
+ * would leave rejoined sessions silent.
  */
 // Mounted at API_ROUTES.sessionStart ('/session/start') in index.ts, so the
 // handler path here is '/' — matching the pattern used by every other router.
@@ -88,7 +90,10 @@ session.post('/', rateLimit({ windowMs: 60_000, max: 30 }), requireAuth, async (
     );
   }
 
-  const room = `onboarding-${userId}`;
+  // Unique per session so LiveKit automatic dispatch always assigns the agent
+  // (it only dispatches to newly-created rooms). The agent derives the user from
+  // the participant identity below, not the room name, so the format is free.
+  const room = `onboarding-${userId}-${randomUUID()}`;
 
   const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
     identity: userId,
