@@ -38,6 +38,13 @@ export default function AgeGate(): React.JSX.Element {
   const [simulating, setSimulating] = useState(false);
   const [waitingForReturn, setWaitingForReturn] = useState(false);
 
+  // Dev/test age bypass. Shown only when the build was exported with
+  // EXPO_PUBLIC_IDV_DEV_MODE=true (or in a local __DEV__ build). This MUST match
+  // the API's IDV_DEV_MODE — it reveals a one-tap "simulate pass" so the gate can
+  // be exercised without a real age vendor. The server still enforces the gate;
+  // set this to false (and wire a vendor) before going to real production.
+  const idvDevMode = __DEV__ || process.env.EXPO_PUBLIC_IDV_DEV_MODE === 'true';
+
   async function handleStartCheck(): Promise<void> {
     setStarting(true);
     try {
@@ -142,29 +149,33 @@ export default function AgeGate(): React.JSX.Element {
         </Text>
       </View>
 
-      <Pressable
-        style={[styles.primaryButton, starting && styles.buttonDisabled]}
-        onPress={handleStartCheck}
-        disabled={starting}
-      >
-        {starting ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.primaryButtonText}>{isFailed ? 'Try again' : 'Start age check'}</Text>
-        )}
-      </Pressable>
-
-      {/* DEV ONLY — simulate pass without a real Yoti account */}
-      {__DEV__ && (
+      {idvDevMode ? (
+        // Dev/test build: no real age vendor is wired yet, so expose a one-tap
+        // simulate-pass (POST /idv/dev/complete). The server still enforces the
+        // gate — this only flips the status so the flow can be tested.
         <Pressable
-          style={[styles.devButton, simulating && styles.buttonDisabled]}
+          style={[styles.primaryButton, simulating && styles.buttonDisabled]}
           onPress={handleSimulatePass}
           disabled={simulating}
         >
           {simulating ? (
-            <ActivityIndicator color="#7C3AED" />
+            <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.devButtonText}>Simulate pass (dev only)</Text>
+            <Text style={styles.primaryButtonText}>Simulate age pass (dev)</Text>
+          )}
+        </Pressable>
+      ) : (
+        <Pressable
+          style={[styles.primaryButton, starting && styles.buttonDisabled]}
+          onPress={handleStartCheck}
+          disabled={starting}
+        >
+          {starting ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.primaryButtonText}>
+              {isFailed ? 'Try again' : 'Start age check'}
+            </Text>
           )}
         </Pressable>
       )}
@@ -231,18 +242,6 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '600',
-  },
-  devButton: {
-    borderWidth: 2,
-    borderColor: '#7C3AED',
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  devButtonText: {
-    color: '#7C3AED',
-    fontSize: 14,
     fontWeight: '600',
   },
   buttonDisabled: {

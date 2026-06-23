@@ -116,6 +116,11 @@ services:
         sync: false
       - key: EXPO_PUBLIC_API_URL # https://done-swiping-api.onrender.com (after API deploys)
         sync: false
+      # Reveals the "Simulate age pass (dev)" button so the gate can be tested
+      # without a real age vendor. MUST match the API's IDV_DEV_MODE. Set to
+      # 'false' (and wire a real vendor) before real production launch.
+      - key: EXPO_PUBLIC_IDV_DEV_MODE
+        value: 'true'
 
   # ---------------------------------------------------------------------------
   # Admin — Vite SPA, global static site.
