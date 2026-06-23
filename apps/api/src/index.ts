@@ -1,5 +1,6 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import { API_ROUTES } from '@done-swiping/shared';
 import { env } from './env.js';
 import { initSentry, captureError } from './lib/observability.js';
@@ -25,6 +26,25 @@ const app = new Hono();
 // Logs method, matched-path pattern, status, duration, requestId.
 // Does NOT log raw URLs or query strings — avoids leaking tokens.
 app.use('*', requestLogger);
+
+// --- CORS -------------------------------------------------------------------
+// The web app (browser) calls this API cross-origin. Auth is via Bearer tokens
+// (no cookies), so a permissive default origin is safe. In production, lock it
+// down by setting WEB_ORIGIN to a comma-separated list of allowed origins
+// (e.g. "https://app.yourdomain.com,https://done-swiping-web.onrender.com").
+const corsOrigins = process.env['WEB_ORIGIN']
+  ?.split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+app.use(
+  '*',
+  cors({
+    origin: corsOrigins && corsOrigins.length > 0 ? corsOrigins : '*',
+    allowHeaders: ['Content-Type', 'Authorization'],
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    maxAge: 86400,
+  }),
+);
 
 // --- Health check -----------------------------------------------------------
 app.get('/health', (c) =>
