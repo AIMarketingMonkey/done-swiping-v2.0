@@ -16,13 +16,13 @@
 
 import { Screen } from '@/components/Screen';
 import { openBillingPortal, startCheckout } from '@/lib/api';
+import { notify } from '@/lib/dialog';
 import { useEntitlement } from '@/lib/useEntitlement';
 import * as Linking from 'expo-linking';
 import { useLocalSearchParams } from 'expo-router';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -77,7 +77,7 @@ export default function Paywall(): React.JSX.Element {
       const { url } = await startCheckout();
       await Linking.openURL(url);
     } catch (_err) {
-      Alert.alert(
+      notify(
         'Could not start checkout',
         'Something went wrong opening the payment page. Please try again.',
       );
@@ -92,7 +92,7 @@ export default function Paywall(): React.JSX.Element {
       const { url } = await openBillingPortal();
       await Linking.openURL(url);
     } catch (_err) {
-      Alert.alert(
+      notify(
         'Could not open billing portal',
         'Something went wrong opening the subscription management page. Please try again.',
       );

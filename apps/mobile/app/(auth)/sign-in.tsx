@@ -6,7 +6,6 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   StyleSheet,
   Text,
@@ -19,17 +18,22 @@ export default function SignIn(): React.JSX.Element {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   async function handleSignIn(): Promise<void> {
+    setErrorMessage(null);
+
     if (!email || !password) {
-      Alert.alert('Missing fields', 'Please enter your email and password.');
+      setErrorMessage('Please enter your email and password.');
       return;
     }
+
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
+
     if (error) {
-      Alert.alert('Sign-in failed', error.message);
+      setErrorMessage(error.message);
     } else {
       // Hand off to the gate in index.tsx which will route to the correct screen.
       router.replace('/');
@@ -57,6 +61,10 @@ export default function SignIn(): React.JSX.Element {
         value={password}
         onChangeText={setPassword}
       />
+
+      {errorMessage !== null && (
+        <Text style={styles.errorMessage}>{errorMessage}</Text>
+      )}
 
       <Pressable style={styles.primaryButton} onPress={handleSignIn} disabled={loading}>
         {loading ? (
@@ -102,6 +110,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
+  },
+  errorMessage: {
+    fontSize: 14,
+    color: '#DC2626',
+    lineHeight: 20,
   },
   primaryButton: {
     backgroundColor: '#7C3AED',

@@ -9,7 +9,6 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Modal,
   Pressable,
   StyleSheet,
@@ -19,6 +18,7 @@ import {
 } from 'react-native';
 
 import { block, report } from '@/lib/api';
+import { confirmAsync, notify } from '@/lib/dialog';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -96,31 +96,23 @@ export function ReportBlockMenu({ userId, onBlocked }: ReportBlockMenuProps): Re
   // -------------------------------------------------------------------------
 
   function handleBlock(): void {
-    // Close the modal first so the Alert is not obscured by the backdrop.
+    // Close the modal first so the confirm dialog is not obscured by the backdrop.
     setMenuOpen(false);
 
-    Alert.alert(
-      'Block this person?',
-      'They will no longer appear in your matches, and you will not appear in theirs.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Block',
-          style: 'destructive',
-          onPress: (): void => {
-            void (async () => {
-              try {
-                await block({ blocked: userId });
-                onBlocked();
-              } catch (err) {
-                const msg = err instanceof Error ? err.message : 'Something went wrong.';
-                Alert.alert('Block failed', msg);
-              }
-            })();
-          },
-        },
-      ],
-    );
+    void (async () => {
+      const ok = await confirmAsync(
+        'Block this person?',
+        'They will no longer appear in your matches, and you will not appear in theirs.',
+      );
+      if (!ok) return;
+      try {
+        await block({ blocked: userId });
+        onBlocked();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Something went wrong.';
+        notify('Block failed', msg);
+      }
+    })();
   }
 
   // -------------------------------------------------------------------------

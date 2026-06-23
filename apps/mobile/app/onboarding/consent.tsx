@@ -7,12 +7,12 @@
 
 import { AiDisclosureBanner } from '@/components/AiDisclosureBanner';
 import * as api from '@/lib/api';
+import { notify } from '@/lib/dialog';
 import { AI_DISCLOSURE, CONSENT_SCOPE, CONSENT_VERSION } from '@done-swiping/shared';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -92,7 +92,7 @@ export default function Consent(): React.JSX.Element {
       // Return to root so the gate re-evaluates and advances automatically.
       router.replace('/');
     } catch (_err) {
-      Alert.alert('Error', 'Could not save your consent. Please try again.');
+      notify('Error', 'Could not save your consent. Please try again.');
     } finally {
       setLoading(false);
     }

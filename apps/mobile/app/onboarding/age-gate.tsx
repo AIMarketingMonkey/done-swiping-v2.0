@@ -22,12 +22,13 @@
 
 import { Screen } from '@/components/Screen';
 import * as api from '@/lib/api';
+import { notify } from '@/lib/dialog';
 import { useGateState } from '@/lib/useGateState';
 import { useAuth } from '@/app/_layout';
 import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 export default function AgeGate(): React.JSX.Element {
   const router = useRouter();
@@ -53,14 +54,14 @@ export default function AgeGate(): React.JSX.Element {
       } else {
         // SDK token flow — client_session_token is available for native SDK.
         // TODO(M1): Pass idvSession.client_session_token to the Yoti SDK here.
-        Alert.alert(
+        notify(
           'Native SDK required',
           'The Yoti age-check SDK requires a development build (expo prebuild). ' +
             'Use the "Simulate pass" button in development.',
         );
       }
     } catch (_err) {
-      Alert.alert('Error', 'Could not start the age check. Please try again.');
+      notify('Error', 'Could not start the age check. Please try again.');
     } finally {
       setStarting(false);
     }
@@ -82,7 +83,7 @@ export default function AgeGate(): React.JSX.Element {
       refresh();
       router.replace('/');
     } catch (_err) {
-      Alert.alert('Dev error', 'Could not simulate pass. Is the API running?');
+      notify('Dev error', 'Could not simulate pass. Is the API running?');
     } finally {
       setSimulating(false);
     }

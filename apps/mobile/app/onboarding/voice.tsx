@@ -17,6 +17,7 @@
 import { AiDisclosureBanner } from '@/components/AiDisclosureBanner';
 import { AgeGateError, PremiumRequiredError } from '@/lib/api';
 import * as api from '@/lib/api';
+import { notify } from '@/lib/dialog';
 import { startAudioSession, stopAudioSession } from '@/lib/livekit';
 import { AI_DISCLOSURE } from '@done-swiping/shared';
 import {
@@ -29,7 +30,6 @@ import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   PermissionsAndroid,
   Platform,
   Pressable,
@@ -98,7 +98,7 @@ function CallControls({ onEnd }: CallControlsProps): React.JSX.Element {
     try {
       await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
     } catch (_err) {
-      Alert.alert('Microphone error', 'Could not toggle the microphone. Please try again.');
+      notify('Microphone error', 'Could not toggle the microphone. Please try again.');
     }
   }
 

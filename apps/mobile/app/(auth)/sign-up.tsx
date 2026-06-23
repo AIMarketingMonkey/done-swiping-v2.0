@@ -6,7 +6,6 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Pressable,
   StyleSheet,
   Text,
@@ -19,27 +18,39 @@ export default function SignUp(): React.JSX.Element {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [isSuccess, setIsSuccess] = useState(false);
 
   async function handleSignUp(): Promise<void> {
+    setMessage(null);
+    setIsSuccess(false);
+
     if (!email || !password) {
-      Alert.alert('Missing fields', 'Please enter your email and password.');
+      setMessage('Please enter your email and password.');
       return;
     }
     if (password.length < 8) {
-      Alert.alert('Weak password', 'Password must be at least 8 characters.');
+      setMessage('Password must be at least 8 characters.');
       return;
     }
+
     setLoading(true);
-    const { error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({ email, password });
     setLoading(false);
+
     if (error) {
-      Alert.alert('Sign-up failed', error.message);
+      setMessage(error.message);
+      return;
+    }
+
+    if (data.session) {
+      // Email confirmation is disabled — session is live immediately.
+      // Navigate to root; the gate in index.tsx advances to the correct screen.
+      router.replace('/');
     } else {
-      Alert.alert(
-        'Check your email',
-        'We sent you a confirmation link. Click it to activate your account, then sign in.',
-        [{ text: 'OK', onPress: () => router.replace('/(auth)/sign-in') }],
-      );
+      // Email confirmation is required — show a success message with a sign-in link.
+      setIsSuccess(true);
+      setMessage('Account created — check your email to confirm, then sign in.');
     }
   }
 
@@ -66,26 +77,38 @@ export default function SignUp(): React.JSX.Element {
         onChangeText={setPassword}
       />
 
-      <Pressable style={styles.primaryButton} onPress={handleSignUp} disabled={loading}>
-        {loading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.primaryButtonText}>Create account</Text>
-        )}
-      </Pressable>
+      {message !== null && (
+        <Text style={isSuccess ? styles.successMessage : styles.errorMessage}>{message}</Text>
+      )}
+
+      {!isSuccess && (
+        <Pressable style={styles.primaryButton} onPress={handleSignUp} disabled={loading}>
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.primaryButtonText}>Create account</Text>
+          )}
+        </Pressable>
+      )}
 
       {/* TODO(M1): Apple Sign-In button */}
-      <Pressable style={styles.socialButton} disabled>
-        <Text style={styles.socialButtonText}>Continue with Apple (coming soon)</Text>
-      </Pressable>
+      {!isSuccess && (
+        <Pressable style={styles.socialButton} disabled>
+          <Text style={styles.socialButtonText}>Continue with Apple (coming soon)</Text>
+        </Pressable>
+      )}
 
       {/* TODO(M1): Google Sign-In button */}
-      <Pressable style={styles.socialButton} disabled>
-        <Text style={styles.socialButtonText}>Continue with Google (coming soon)</Text>
-      </Pressable>
+      {!isSuccess && (
+        <Pressable style={styles.socialButton} disabled>
+          <Text style={styles.socialButtonText}>Continue with Google (coming soon)</Text>
+        </Pressable>
+      )}
 
       <Pressable onPress={() => router.back()} style={styles.linkButton}>
-        <Text style={styles.linkText}>Already have an account? Sign in</Text>
+        <Text style={styles.linkText}>
+          {isSuccess ? 'Go to sign in' : 'Already have an account? Sign in'}
+        </Text>
       </Pressable>
     </View>
   );
@@ -115,6 +138,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
+  },
+  errorMessage: {
+    fontSize: 14,
+    color: '#DC2626',
+    lineHeight: 20,
+  },
+  successMessage: {
+    fontSize: 14,
+    color: '#16A34A',
+    lineHeight: 20,
   },
   primaryButton: {
     backgroundColor: '#7C3AED',

@@ -14,6 +14,7 @@
 
 import { Screen } from '@/components/Screen';
 import { deleteMemoryItem, exportMemory, getMemory, updateMemoryItem } from '@/lib/api';
+import { confirmAsync, notify } from '@/lib/dialog';
 import type { MemoryResponse } from '@done-swiping/shared';
 
 type StatedItem = MemoryResponse['stated'][number];
@@ -22,7 +23,6 @@ type PreferenceItem = MemoryResponse['preferences'][number];
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Modal,
   Pressable,
   RefreshControl,
@@ -200,21 +200,18 @@ export default function MemoryScreen(): React.JSX.Element {
     kind: 'stated' | 'inferred' | 'preference',
     label: string,
   ): void {
-    Alert.alert(
-      'Delete item?',
-      // TODO(M3): Confirm with API team that this also purges server-side
-      // embeddings. The API is expected to handle embedding deletion; this
-      // action is permanent and cannot be undone.
-      `"${label}" will be permanently removed from your profile, including any associated AI embeddings. This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => void performDelete(id, kind),
-        },
-      ],
-    );
+    // TODO(M3): Confirm with API team that this also purges server-side
+    // embeddings. The API is expected to handle embedding deletion; this
+    // action is permanent and cannot be undone.
+    void (async () => {
+      const ok = await confirmAsync(
+        'Delete item?',
+        `"${label}" will be permanently removed from your profile, including any associated AI embeddings. This cannot be undone.`,
+      );
+      if (ok) {
+        void performDelete(id, kind);
+      }
+    })();
   }
 
   async function performDelete(
@@ -234,7 +231,7 @@ export default function MemoryScreen(): React.JSX.Element {
         };
       });
     } catch (err) {
-      Alert.alert('Delete failed', err instanceof Error ? err.message : 'Please try again.');
+      notify('Delete failed', err instanceof Error ? err.message : 'Please try again.');
     }
   }
 
@@ -286,7 +283,7 @@ export default function MemoryScreen(): React.JSX.Element {
       }
       setEditTarget(null);
     } catch (err) {
-      Alert.alert('Save failed', err instanceof Error ? err.message : 'Please try again.');
+      notify('Save failed', err instanceof Error ? err.message : 'Please try again.');
     } finally {
       setSaving(false);
     }
@@ -321,7 +318,7 @@ export default function MemoryScreen(): React.JSX.Element {
             }
           : prev,
       );
-      Alert.alert(
+      notify(
         'Update failed',
         err instanceof Error ? err.message : 'Could not update hard filter.',
       );
@@ -348,7 +345,7 @@ export default function MemoryScreen(): React.JSX.Element {
         const bundle = await exportMemory();
         setExportJson(JSON.stringify(bundle, null, 2));
       } catch (err2) {
-        Alert.alert('Export failed', err2 instanceof Error ? err2.message : 'Please try again.');
+        notify('Export failed', err2 instanceof Error ? err2.message : 'Please try again.');
       }
     } finally {
       setExporting(false);
