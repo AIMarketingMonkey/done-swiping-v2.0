@@ -20,7 +20,9 @@ const session = new Hono();
  * TODO(M2): Generate a stable room id per-conversation rather than always
  *            using the onboarding room; store conversation record in DB.
  */
-session.post('/start', rateLimit({ windowMs: 60_000, max: 30 }), requireAuth, async (c) => {
+// Mounted at API_ROUTES.sessionStart ('/session/start') in index.ts, so the
+// handler path here is '/' — matching the pattern used by every other router.
+session.post('/', rateLimit({ windowMs: 60_000, max: 30 }), requireAuth, async (c) => {
   const userId = getUserId(c);
 
   // --- Age-gate (M1) --------------------------------------------------------
