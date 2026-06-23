@@ -134,7 +134,10 @@ create table consents (
   scope text,
   granted boolean,
   version text,
-  granted_at timestamptz default now()
+  granted_at timestamptz default now(),
+  -- POST /consent upserts with onConflict (user_id, scope); this unique
+  -- constraint is what ON CONFLICT matches against.
+  constraint consents_user_id_scope_key unique (user_id, scope)
 );
 create index consents_user_id_idx on consents (user_id);
 
