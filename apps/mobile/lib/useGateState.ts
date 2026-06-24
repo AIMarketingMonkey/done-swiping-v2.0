@@ -47,11 +47,13 @@ export function useGateState(userId: string | undefined): GateState {
       setLoading(true);
       try {
         // Read the user's profile for age_assurance_status (RLS: own row only).
+        // Use maybeSingle (not single): a user without a profile row yet resolves
+        // to null instead of a 406 error, and is treated as 'pending' below.
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
           .select('age_assurance_status')
           .eq('user_id', userId)
-          .single();
+          .maybeSingle();
 
         if (profileError) throw profileError;
 
