@@ -175,6 +175,45 @@ Give the user a concise summary:
 
 ---
 
+## 11. Verification pass (READ-ONLY — confirm the cleanup is complete)
+
+This is a **read-only confirmation pass.** Make **NO changes** — just inspect each
+item and report **✅ / ❌** with what you observed. If anything is ❌, the fix is in
+Section 6 above; flag it for the user, do not silently change it in this pass.
+
+**A — `done-swiping-admin` → Environment**
+- `VITE_SUPABASE_URL` → ✅ if it reads `https://nhpequaeddkasqgsdrii.supabase.co`;
+  ❌ if it contains `txnvpmoichprixbnnifb`.
+- `VITE_SUPABASE_ANON_KEY` → present? (value is masked — you can't confirm the
+  project by sight; confirm via check **E**). Confirm it's the **anon** key, never
+  service_role.
+
+**B — `done-swiping-voice-agent` → Environment**
+- ✅ if **no** `CARTESIA_API_KEY` and **no** `CARTESIA_VOICE_ID` remain.
+- Also note `TTS_PROVIDER` = `elevenlabs` and `ELEVENLABS_API_KEY` is present.
+
+**C — `done-swiping-api` → Environment**
+- ✅ if `SUPABASE_DB_URL` is either **absent** or no longer contains
+  `txnvpmoichprixbnnifb`.
+
+**D — Static-site rebuilds → each service's Events tab**
+- `done-swiping-web` → Events **and** `done-swiping-admin` → Events: ✅ if the most
+  recent **deploy** ran **after** the env changes were saved and the service shows
+  **Live**.
+
+**E — Gold-standard runtime check (admin)**
+- Open the **done-swiping-admin** site (its `…onrender.com` URL, shown on the
+  service page) in a normal tab → **DevTools → Network** → reload.
+- ✅ if requests go to **`nhpequaeddkasqgsdrii.supabase.co`** (not
+  `txnvpmoichprixbnnifb`), there is **no redirect to any `vercel.app`** page, and no
+  401/404 from Supabase on load.
+
+**Report format:** one line per check, e.g.
+`A — ✅ VITE_SUPABASE_URL = https://nhpequaeddkasqgsdrii.supabase.co`
+`B — ❌ CARTESIA_VOICE_ID still present`
+
+---
+
 ### Context (optional reading)
 Done Swiping is a voice-first dating app on **Render** (API + voice-agent +
 web + admin), **Supabase** (database/auth, project `nhpequaeddkasqgsdrii`), and
